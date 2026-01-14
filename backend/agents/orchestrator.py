@@ -1,0 +1,351 @@
+"""
+Agent Orchestrator
+Manages multi-agent conversations and handles cue-based handoffs
+"""
+
+import re
+import asyncio
+from typing import Dict, List, Optional, AsyncGenerator, Any
+from dataclasses import dataclass, field
+from datetime import datetime
+
+from .senior_dev import SeniorDevAgent
+from .junior_dev import JuniorDevAgent
+from .unit_tester import UnitTesterAgent
+from .researcher import ResearcherAgent
+
+
+@dataclass
+class Message:
+    """Represents a message in the conversation"""
+    agent: str
+    content: str
+    thoughts: Optional[str] = None
+    timestamp: datetime = field(default_factory=datetime.now)
+    cues: List[str] = field(default_factory=list)
+
+
+class AgentOrchestrator:
+    """Orchestrates multi-agent conversations"""
+    
+    # Agent cue mapping
+    CUE_TO_AGENT = {
+        "SENIOR": "Senior Dev",
+        "JUNIOR": "Junior Dev",
+        "TESTER": "Unit Tester",
+        "RESEARCH": "Researcher",
+        "SEARCH": "Search"
+    }
+    
+    def __init__(self, usage_tracker=None):
+        self.usage_tracker = usage_tracker
+        self.agents: Dict[str, Any] = {}
+        self.conversation: List[Message] = []
+        self.pending_file_changes: List[dict] = []
+        self.initialized = False
+    
+    async def initialize(self):
+        """Initialize all agents"""
+        if self.initialized:
+            return
+        
+        self.agents = {
+            "Senior Dev": SeniorDevAgent(),
+            "Junior Dev": JuniorDevAgent(),
+            "Unit Tester": UnitTesterAgent(),
+            "Researcher": ResearcherAgent()
+        }
+        self.initialized = True
+        print("✅ All agents initialized")
+    
+    def get_agent_status(self) -> List[dict]:
+        """Get status of all agents"""
+        return [agent.get_info() for agent in self.agents.values()]
+    
+    def _select_initial_agent(self, message: str) -> str:
+        """Select which agent should respond first based on message content"""
+        message_lower = message.lower()
+        
+        # Check for explicit agent mentions
+        if any(word in message_lower for word in ["test", "testing", "coverage", "unit test"]):
+            return "Unit Tester"
+        elif any(word in message_lower for word in ["research", "search", "find", "look up", "latest", "docs"]):
+            return "Researcher"
+        elif any(word in message_lower for word in ["implement", "create", "build", "code"]):
+            return "Junior Dev"
+        else:
+            # Default to Senior Dev for reviews and general questions
+            return "Senior Dev"
+    
+    def _extract_cues(self, content: str) -> List[str]:
+        """Extract cues from agent response"""
+        cues = []
+        
+        # Check for handoff cues
+        for cue_name in self.CUE_TO_AGENT.keys():
+            if f"[→{cue_name}]" in content:
+                cues.append(cue_name)
+        
+        # Check for file edit cues
+        edit_pattern = r'\[EDIT_FILE:([^\]]+)\]'
+        edits = re.findall(edit_pattern, content)
+        for path in edits:
+            cues.append(f"EDIT:{path}")
+        
+        create_pattern = r'\[CREATE_FILE:([^\]]+)\]'
+        creates = re.findall(create_pattern, content)
+        for path in creates:
+            cues.append(f"CREATE:{path}")
+        
+        # Check for search cues
+        search_pattern = r'\[SEARCH:([^\]]+)\]'
+        searches = re.findall(search_pattern, content)
+        for query in searches:
+            cues.append(f"SEARCH:{query.strip()}")
+
+        # Check for done cue
+        if "[DONE]" in content:
+            cues.append("DONE")
+        
+        return cues
+    
+    async def process_message(
+        self, 
+        message: str, 
+        context: dict = None,
+        stream: bool = True
+    ) -> dict:
+        """Process a message (non-streaming)"""
+        
+        # Select initial agent
+        agent_name = self._select_initial_agent(message)
+        agent = self.agents[agent_name]
+        
+        # Build context with conversation history
+        full_context = context or {}
+        full_context["conversation"] = [
+            {"agent": m.agent, "content": m.content} 
+            for m in self.conversation[-10:]
+        ]
+        
+        # Generate response
+        response = await agent.generate(message, full_context)
+        
+        # Extract cues
+        cues = self._extract_cues(response)
+        
+        # Track usage
+        if self.usage_tracker:
+            self.usage_tracker.track(agent.provider, 1)
+        
+        # Save to conversation
+        msg = Message(agent=agent_name, content=response, cues=cues)
+        self.conversation.append(msg)
+        
+        return {
+            "agent": agent_name,
+            "emoji": agent.emoji,
+            "color": agent.color,
+            "content": response,
+            "cues": cues
+        }
+    
+    async def process_message_stream(
+        self, 
+        message: str, 
+        context: dict = None,
+        max_turns: int = 5
+    ) -> AsyncGenerator[Dict, None]:
+        """
+        Process a message with streaming responses
+        Yields events as agents respond and hand off
+        """
+        from services.web_scraper import WebScraper
+        scraper = WebScraper()
+        
+        # Ensure initialized
+        if not self.initialized:
+            await self.initialize()
+        
+        # Select initial agent
+        current_agent_name = self._select_initial_agent(message)
+        current_message = message
+        turn = 0
+        
+        # Build context with conversation history
+        full_context = context or {}
+        full_context["conversation"] = [
+            {"agent": m.agent, "content": m.content} 
+            for m in self.conversation[-20:]
+        ]
+        
+        while turn < max_turns:
+            turn += 1
+            agent = self.agents[current_agent_name]
+            
+            # Announce agent starting
+            yield {
+                "type": "agent_start",
+                "agent": current_agent_name,
+                "emoji": agent.emoji,
+                "color": agent.color,
+                "turn": turn
+            }
+            
+            # Collect full response for cue extraction
+            full_response = ""
+            full_thoughts = ""
+            
+            # Stream agent response
+            async for event in agent.think(current_message, full_context):
+                if event.get("update_state"):
+                    continue
+                    
+                if event["type"] == "thought":
+                    full_thoughts += event["content"]
+                    yield {
+                        "type": "thought",
+                        "agent": current_agent_name,
+                        "content": event["content"]
+                    }
+                elif event["type"] == "message":
+                    full_response += event["content"]
+                    yield {
+                        "type": "message",
+                        "agent": current_agent_name,
+                        "content": event["content"]
+                    }
+                elif event["type"] == "error":
+                    yield {
+                        "type": "error",
+                        "agent": current_agent_name,
+                        "content": event["content"]
+                    }
+            
+            # Track usage
+            if self.usage_tracker:
+                self.usage_tracker.track(agent.provider, 1)
+            
+            # Save to conversation
+            msg = Message(
+                agent=current_agent_name, 
+                content=full_response,
+                thoughts=full_thoughts,
+                cues=self._extract_cues(full_response)
+            )
+            self.conversation.append(msg)
+            
+            # Update context with this response
+            full_context["conversation"].append({
+                "agent": current_agent_name,
+                "content": full_response
+            })
+            
+            # Extract cues and determine next action
+            cues = self._extract_cues(full_response)
+            
+            # Check for file changes
+            file_edit_proposed = False
+            for cue in cues:
+                if cue.startswith("EDIT:") or cue.startswith("CREATE:"):
+                    # Extract file path and notify frontend
+                    path = cue.split(":", 1)[1]
+                    action = "edit" if cue.startswith("EDIT:") else "create"
+                    yield {
+                        "type": "file_change",
+                        "action": action,
+                        "path": path,
+                        "agent": current_agent_name,
+                        "content": full_response
+                    }
+                    file_edit_proposed = True
+            
+            # Check for search cues
+            search_query = None
+            for cue in cues:
+                if cue.startswith("SEARCH:"):
+                    search_query = cue.split(":", 1)[1]
+                    break
+            
+            if search_query:
+                yield {
+                    "type": "agent_status",
+                    "status": f"Searching for: {search_query}..."
+                }
+                
+                # Perform search
+                results = await scraper.search_and_summarize(search_query)
+                
+                # Broadcast results to frontend for cards
+                yield {
+                    "type": "research_results",
+                    "query": search_query,
+                    "results": results.get("search_results", [])
+                }
+                
+                # Feed findings back to agent
+                findings_summary = "\n".join([
+                    f"- {r['title']}: {r['snippet']} ({r['url']})" 
+                    for r in results.get("search_results", [])[:5]
+                ])
+                
+                current_message = f"Web search results for '{search_query}':\n\n{findings_summary}\n\nPlease summarize these findings for the user."
+                # We continue the loop with the SAME agent but new message (findings)
+                continue
+
+            # If file edit proposed, we pause here to let user review
+            if file_edit_proposed:
+                yield {
+                    "type": "agent_done",
+                    "agent": current_agent_name,
+                    "message": "Pausing for file review... ⏸️"
+                }
+                break
+
+            # Check for done
+            if "DONE" in cues:
+                yield {
+                    "type": "agent_done",
+                    "agent": current_agent_name,
+                    "message": "Task completed! ✅"
+                }
+                break
+            
+            # Check for handoff
+            handoff_agent = None
+            for cue in cues:
+                if cue in self.CUE_TO_AGENT:
+                    handoff_agent = self.CUE_TO_AGENT[cue]
+                    break
+            
+            if handoff_agent:
+                yield {
+                    "type": "handoff",
+                    "from_agent": current_agent_name,
+                    "to_agent": handoff_agent,
+                    "cue": cue
+                }
+                
+                # Set up for next turn
+                current_agent_name = handoff_agent
+                current_message = f"Previous agent ({msg.agent}) said:\n\n{full_response}\n\nPlease continue with your expertise."
+            else:
+                # No handoff, we're done
+                yield {
+                    "type": "agent_done",
+                    "agent": current_agent_name,
+                    "message": "Response complete"
+                }
+                break
+        
+        # Final complete event
+        yield {
+            "type": "complete",
+            "turns": turn,
+            "conversation_length": len(self.conversation)
+        }
+    
+    def clear_conversation(self):
+        """Clear conversation history"""
+        self.conversation = []
+        return {"status": "cleared"}
