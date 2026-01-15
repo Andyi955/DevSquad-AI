@@ -206,7 +206,7 @@ class BaseAgent(ABC):
                     parts.append(f"- {f['path']} ({f.get('size', 'unknown')} bytes)\n")
                 parts.append("\n")
             
-            if "current_file" in context:
+            if context.get("current_file"):
                 parts.append(f"## Current File: {context['current_file']['path']}\n```\n")
                 parts.append(context['current_file']['content'])
                 parts.append("\n```\n\n")

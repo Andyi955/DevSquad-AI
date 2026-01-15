@@ -122,6 +122,12 @@ DevSquad-AI/
 
 ## 🎮 How It Works
 
+### 🧠 System Logic
+The application is designed around a **State Machine pattern** where each AI agent acts as a specialized node in a collaborative workflow. 
+
+- **Autonomous Decision Making**: Agents (Senior, Junior, Tester, etc.) don't just answer questions; they decide who is best suited to handle the next part of your request.
+- **The Orchestrator**: The central `orchestrator.py` manages the "handoff" logic. It parses agent responses for specific [cues](#agent-cue-system) and automatically routes the conversation to the next expert, ensuring a seamless multi-agent collaboration.
+
 ### Agent Cue System
 Agents communicate via special cues in their responses:
 

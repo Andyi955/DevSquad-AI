@@ -25,6 +25,7 @@ function App() {
   const [currentAgent, setCurrentAgent] = useState(null)
   const [researchResults, setResearchResults] = useState([])
   const [isStopped, setIsStopped] = useState(false)
+  const [toasts, setToasts] = useState([])
 
   // Handle incoming WebSocket messages
   const handleMessage = useCallback((data) => {
@@ -177,8 +178,31 @@ function App() {
     }
   }
 
+  const showToast = useCallback((message, icon = '⚠️') => {
+    const id = Date.now()
+    setToasts(prev => [...prev, { id, message, icon }])
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id))
+    }, 3000)
+  }, [])
+
   const sendChatMessage = useCallback(async (message) => {
     if (!isConnected || !message.trim()) return
+
+    // Funny messages for missing file selection
+    const missingFileQuips = [
+      "I don't think he knows he has to select a file... 🤔",
+      "Searching for code in the digital void? Please select a file! 🔦",
+      "Invisible ink isn't supported yet. Select a file first! 🖋️",
+      "The agents are confused. They need a file to look at! 🤖",
+      "Wait! You forgot to highlight a file in the left panel. 👈"
+    ]
+
+    if (!selectedFile) {
+      const quip = missingFileQuips[Math.floor(Math.random() * missingFileQuips.length)]
+      showToast(quip)
+      return
+    }
 
     // Add user message
     setMessages(prev => [...prev, {
@@ -303,6 +327,16 @@ function App() {
           ⚡ {pendingChanges.length} pending change(s) - Click to review
         </div>
       )}
+
+      {/* Toast Notifications */}
+      <div className="toast-container">
+        {toasts.map(toast => (
+          <div key={toast.id} className="toast">
+            <span className="toast-icon">{toast.icon}</span>
+            <span className="toast-message">{toast.message}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
