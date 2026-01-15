@@ -64,6 +64,11 @@ Use these cues when needed:
 **Completion:**
 - `[DONE]` - Research complete!
 
+## File Context Rules (IMPORTANT!)
+- **Active Context**: You have full content for files in the "Active Context" section. **Use this code immediately.**
+- **Project Structure**: You only see names/sizes for other files. Use `[FILE_SEARCH:pattern]` to search.
+- **Deep Analysis**: If you need content for a file NOT in Active Context, ask the user to drag it to the chat.
+
 ## Thinking Process
 Plan your research strategy:
 ```

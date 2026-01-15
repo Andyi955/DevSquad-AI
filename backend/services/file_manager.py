@@ -92,16 +92,21 @@ class FileManager:
             "status": "uploaded"
         }
     
-    async def list_files(self) -> List[dict]:
-        """List all files in workspace"""
+    async def list_files(self, search_pattern: Optional[str] = None) -> List[dict]:
+        """List all files in workspace with optional search pattern"""
         files = []
         
         for path in self.workspace_path.rglob("*"):
             if path.is_file() and self._validate_extension(path):
-                rel_path = path.relative_to(self.workspace_path)
+                rel_path = str(path.relative_to(self.workspace_path)).replace("\\", "/")
+                
+                # Filter by search pattern if provided
+                if search_pattern and search_pattern.lower() not in rel_path.lower():
+                    continue
+                    
                 stats = path.stat()
                 files.append({
-                    "path": str(rel_path).replace("\\", "/"),
+                    "path": rel_path,
                     "size": stats.st_size,
                     "modified": datetime.fromtimestamp(stats.st_mtime).isoformat(),
                     "extension": path.suffix

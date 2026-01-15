@@ -5,9 +5,64 @@
 
 import { useState, useRef } from 'react'
 
-function Sidebar({ files, selectedFile, onSelectFile, onUpload }) {
+function Sidebar({ files, selectedFile, onSelectFile, onUpload, onAttachFiles }) {
     const [isDragOver, setIsDragOver] = useState(false)
+    const [selectedPaths, setSelectedPaths] = useState([])
+    const lastClickedIndex = useRef(-1)
     const fileInputRef = useRef(null)
+
+    const handleFileClick = (e, file, index) => {
+        let newSelected = [...selectedPaths]
+
+        if (e.ctrlKey || e.metaKey) {
+            // Toggle selection
+            if (newSelected.includes(file.path)) {
+                newSelected = newSelected.filter(p => p !== file.path)
+            } else {
+                newSelected.push(file.path)
+            }
+        } else if (e.shiftKey && lastClickedIndex.current !== -1) {
+            // Range selection
+            const start = Math.min(lastClickedIndex.current, index)
+            const end = Math.max(lastClickedIndex.current, index)
+            const rangePaths = files.slice(start, end + 1).map(f => f.path)
+
+            // Add range to existing selection, but filter duplicates
+            newSelected = Array.from(new Set([...newSelected, ...rangePaths]))
+        } else {
+            // Single selection
+            newSelected = [file.path]
+            onSelectFile(file)
+        }
+
+        setSelectedPaths(newSelected)
+        lastClickedIndex.current = index
+    }
+
+    const handleDragStart = (e, file) => {
+        // If the dragged file is part of the selection, drag all selected files
+        // Otherwise, just drag the single file
+        const filesToDrag = selectedPaths.includes(file.path)
+            ? files.filter(f => selectedPaths.includes(f.path))
+            : [file]
+
+        e.dataTransfer.setData('application/json', JSON.stringify(filesToDrag))
+        e.dataTransfer.effectAllowed = 'copy'
+
+        // Show ghost image text for multiple files
+        if (filesToDrag.length > 1) {
+            const dragIcon = document.createElement('div')
+            dragIcon.innerText = `📄 ${filesToDrag.length} files`
+            dragIcon.style.padding = '8px 12px'
+            dragIcon.style.background = 'var(--neon-blue)'
+            dragIcon.style.borderRadius = '8px'
+            dragIcon.style.position = 'absolute'
+            dragIcon.style.top = '-1000px'
+            document.body.appendChild(dragIcon)
+            e.dataTransfer.setDragImage(dragIcon, 0, 0)
+            setTimeout(() => document.body.removeChild(dragIcon), 0)
+        }
+    }
 
     const handleDragOver = (e) => {
         e.preventDefault()
@@ -95,15 +150,27 @@ function Sidebar({ files, selectedFile, onSelectFile, onUpload }) {
                     </div>
                 ) : (
                     <div className="file-list">
-                        {files.map((file) => (
+                        {files.map((file, index) => (
                             <div
                                 key={file.path}
-                                className={`file-item ${selectedFile?.path === file.path ? 'active' : ''}`}
-                                onClick={() => onSelectFile(file)}
+                                className={`file-item ${selectedPaths.includes(file.path) ? 'active' : ''}`}
+                                onClick={(e) => handleFileClick(e, file, index)}
+                                draggable
+                                onDragStart={(e) => handleDragStart(e, file)}
                             >
                                 <span className="file-icon">{getFileIcon(file.extension)}</span>
                                 <span className="file-name">{file.path}</span>
                                 <span className="file-size">{formatSize(file.size)}</span>
+                                <button
+                                    className="btn-add-to-chat"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        onAttachFiles(file)
+                                    }}
+                                    title="Add to chat"
+                                >
+                                    +
+                                </button>
                             </div>
                         ))}
                     </div>

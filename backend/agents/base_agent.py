@@ -25,6 +25,7 @@ class BaseAgent(ABC):
         "RESEARCH": "[→RESEARCH]",
         "EDIT_FILE": "[EDIT_FILE:",
         "CREATE_FILE": "[CREATE_FILE:",
+        "FILE_SEARCH": "[FILE_SEARCH:",
         "DONE": "[DONE]"
     }
     
@@ -201,15 +202,37 @@ class BaseAgent(ABC):
         
         if context:
             if "files" in context:
-                parts.append("## Available Files\n")
+                parts.append("## Project Structure (Available Files)\n")
+                parts.append("You can see the names and sizes of all files in the project. You DO NOT have their content unless they are in the 'Active Context' below.\n")
                 for f in context["files"]:
                     parts.append(f"- {f['path']} ({f.get('size', 'unknown')} bytes)\n")
                 parts.append("\n")
             
-            if context.get("current_file"):
-                parts.append(f"## Current File: {context['current_file']['path']}\n```\n")
-                parts.append(context['current_file']['content'])
-                parts.append("\n```\n\n")
+            # Build Active Context (files we have content for)
+            active_context = []
+            seen_paths = set()
+            
+            if context.get("attached_files"):
+                for f in context["attached_files"]:
+                    active_context.append({"path": f["path"], "content": f["content"], "type": "Attached"})
+                    seen_paths.add(f["path"])
+            
+            if context.get("current_file") and context["current_file"]["path"] not in seen_paths:
+                active_context.append({
+                    "path": context["current_file"]["path"], 
+                    "content": context["current_file"]["content"],
+                    "type": "Selected"
+                })
+
+            if active_context:
+                parts.append("## Active Context (Full Content Provided)\n")
+                parts.append("You have the FULL content for the following files. Use them to answer the user's request IMMEDIATELY without asking for them again.\n\n")
+                for f in active_context:
+                    parts.append(f"### File: {f['path']} ({f['type']})\n```\n")
+                    parts.append(f['content'])
+                    parts.append("\n```\n\n")
+            else:
+                parts.append("## Active Context\nNo files are currently attached or selected for deep analysis. You only see the project structure above.\n\n")
             
             if "conversation" in context:
                 parts.append("## Previous Conversation\n")

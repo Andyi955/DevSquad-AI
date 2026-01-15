@@ -34,7 +34,8 @@ class AgentOrchestrator:
         "JUNIOR": "Junior Dev",
         "TESTER": "Unit Tester",
         "RESEARCH": "Researcher",
-        "SEARCH": "Search"
+        "SEARCH": "Search",
+        "FILE_SEARCH": "FileSearch"
     }
     
     def __init__(self, usage_tracker=None, file_manager=None):
@@ -104,6 +105,12 @@ class AgentOrchestrator:
         searches = re.findall(search_pattern, content)
         for query in searches:
             cues.append(f"SEARCH:{query.strip()}")
+
+        # Check for file search cues
+        file_search_pattern = r'\[FILE_SEARCH:([^\]]+)\]'
+        file_searches = re.findall(file_search_pattern, content)
+        for pattern in file_searches:
+            cues.append(f"FILE_SEARCH:{pattern.strip()}")
 
         # Check for done cue
         if "[DONE]" in content:
@@ -300,6 +307,31 @@ class AgentOrchestrator:
                     search_query = cue.split(":", 1)[1]
                     break
             
+            # Check for file search cues
+            file_search_pattern = None
+            for cue in cues:
+                if cue.startswith("FILE_SEARCH:"):
+                    file_search_pattern = cue.split(":", 1)[1]
+                    break
+            
+            if file_search_pattern:
+                yield {
+                    "type": "agent_status",
+                    "status": f"Searching for files: {file_search_pattern}..."
+                }
+
+                # Perform file search
+                matching_files = await self.file_manager.list_files(file_search_pattern)
+                file_list_str = "\n".join([f"- {f['path']} ({f['size']} bytes)" for f in matching_files])
+                
+                if not matching_files:
+                    current_message = f"I searched for files matching '{file_search_pattern}' but found no results."
+                else:
+                    current_message = f"Found {len(matching_files)} files matching '{file_search_pattern}':\n\n{file_list_str}\n\nYou can ask the user to provide the content of any of these if you need to analyze them deeply."
+
+                # Continue the loop with the same agent
+                continue
+
             if search_query:
                 yield {
                     "type": "agent_status",

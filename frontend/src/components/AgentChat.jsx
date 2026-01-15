@@ -24,10 +24,30 @@ function AgentChat({
     onSendMessage,
     isConnected,
     onStop,
-    isStopped
+    isStopped,
+    attachedFiles = [],
+    onAttachFiles,
+    onRemoveFile
 }) {
     const [input, setInput] = useState('')
     const [showContinuePrompt, setShowContinuePrompt] = useState(false)
+    const [isDraggingFile, setIsDraggingFile] = useState(false)
+
+    const getFileIcon = (ext) => {
+        const icons = {
+            '.py': '🐍',
+            '.js': '📜',
+            '.jsx': '⚛️',
+            '.ts': '📘',
+            '.tsx': '⚛️',
+            '.html': '🌐',
+            '.css': '🎨',
+            '.json': '📋',
+            '.md': '📝',
+            '.txt': '📄'
+        }
+        return icons[ext] || '📄'
+    }
 
     const messagesEndRef = useRef(null)
     const inputRef = useRef(null)
@@ -63,6 +83,31 @@ function AgentChat({
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             handleSubmit(e)
+        }
+    }
+
+    const handleDragOver = (e) => {
+        e.preventDefault()
+        if (e.dataTransfer.types.includes('application/json')) {
+            setIsDraggingFile(true)
+        }
+    }
+
+    const handleDragLeave = () => {
+        setIsDraggingFile(false)
+    }
+
+    const handleDrop = (e) => {
+        e.preventDefault()
+        setIsDraggingFile(false)
+        const data = e.dataTransfer.getData('application/json')
+        if (data) {
+            try {
+                const parsed = JSON.parse(data)
+                onAttachFiles(parsed)
+            } catch (err) {
+                console.error('Failed to parse dropped data:', err)
+            }
         }
     }
 
@@ -258,7 +303,31 @@ function AgentChat({
             </div>
 
             {/* Input Container */}
-            <div className="chat-input-container">
+            <div
+                className={`chat-input-container ${isDraggingFile ? 'drag-over' : ''}`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+            >
+                {/* Attached Files Bar */}
+                {attachedFiles.length > 0 && (
+                    <div className="attached-files-bar">
+                        {attachedFiles.map(file => (
+                            <div key={file.path} className="attached-file-chip">
+                                <span className="chip-icon">{getFileIcon(file.extension)}</span>
+                                <span className="chip-name">{file.path}</span>
+                                <button
+                                    className="chip-remove"
+                                    onClick={() => onRemoveFile(file.path)}
+                                    title="Remove attachment"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
                 {showContinuePrompt && (
                     <div className="continue-prompt-banner">
                         <div className="continue-prompt-content">
