@@ -37,8 +37,9 @@ class AgentOrchestrator:
         "SEARCH": "Search"
     }
     
-    def __init__(self, usage_tracker=None):
+    def __init__(self, usage_tracker=None, file_manager=None):
         self.usage_tracker = usage_tracker
+        self.file_manager = file_manager
         self.agents: Dict[str, Any] = {}
         self.conversation: List[Message] = []
         self.pending_file_changes: List[dict] = []
@@ -108,6 +109,18 @@ class AgentOrchestrator:
             cues.append("DONE")
         
         return cues
+    
+    def _extract_code_block(self, content: str) -> str:
+        """Extract the first code block from content, or return content if none found"""
+        # Look for ```code``` blocks
+        pattern = r'```(?:\w+)?\n(.*?)\n```'
+        match = re.search(pattern, content, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        
+        # Fallback: if no code block but starts/ends with something look-alike
+        # or just return the trimmed content
+        return content.strip()
     
     async def process_message(
         self, 
@@ -247,18 +260,36 @@ class AgentOrchestrator:
             # Check for file changes
             file_edit_proposed = False
             for cue in cues:
-                if cue.startswith("EDIT:") or cue.startswith("CREATE:"):
+                if (cue.startswith("EDIT:") or cue.startswith("CREATE:")) and self.file_manager:
                     # Extract file path and notify frontend
                     path = cue.split(":", 1)[1]
                     action = "edit" if cue.startswith("EDIT:") else "create"
-                    yield {
-                        "type": "file_change",
-                        "action": action,
-                        "path": path,
-                        "agent": current_agent_name,
-                        "content": full_response
-                    }
-                    file_edit_proposed = True
+                    
+                    # Extract actual code from response
+                    code_content = self._extract_code_block(full_response)
+                    
+                    # Register pending change in file_manager to get an ID
+                    change_id = await self.file_manager.create_pending_change(
+                        path=path,
+                        content=code_content,
+                        agent=current_agent_name
+                    )
+                    
+                    # Get the pending change details for the frontend
+                    pending_changes = self.file_manager.get_pending_changes()
+                    change_details = next((c for c in pending_changes if c['id'] == change_id), None)
+
+                    if change_details:
+                        yield {
+                            "type": "file_change",
+                            "change_id": change_id,
+                            "action": action,
+                            "path": path,
+                            "agent": current_agent_name,
+                            "new_content": change_details['new_content'],
+                            "old_content": change_details['old_content']
+                        }
+                        file_edit_proposed = True
             
             # Check for search cues
             search_query = None

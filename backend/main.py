@@ -28,7 +28,7 @@ from services.web_scraper import WebScraper
 file_manager = FileManager()
 usage_tracker = UsageTracker()
 web_scraper = WebScraper()
-orchestrator = AgentOrchestrator(usage_tracker)
+orchestrator = AgentOrchestrator(usage_tracker, file_manager)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
