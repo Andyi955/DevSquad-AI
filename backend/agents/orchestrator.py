@@ -43,6 +43,7 @@ class AgentOrchestrator:
         self.agents: Dict[str, Any] = {}
         self.conversation: List[Message] = []
         self.pending_file_changes: List[dict] = []
+        self.last_handoff: Optional[str] = None
         self.initialized = False
     
     async def initialize(self):
@@ -167,7 +168,8 @@ class AgentOrchestrator:
         self, 
         message: str, 
         context: dict = None,
-        max_turns: int = 5
+        max_turns: int = 5,
+        initial_agent: str = None
     ) -> AsyncGenerator[Dict, None]:
         """
         Process a message with streaming responses
@@ -181,7 +183,7 @@ class AgentOrchestrator:
             await self.initialize()
         
         # Select initial agent
-        current_agent_name = self._select_initial_agent(message)
+        current_agent_name = initial_agent or self._select_initial_agent(message)
         current_message = message
         turn = 0
         
@@ -324,8 +326,18 @@ class AgentOrchestrator:
                 # We continue the loop with the SAME agent but new message (findings)
                 continue
 
+            # Check for handoff
+            handoff_agent = None
+            handoff_cue = None
+            for cue in cues:
+                if cue in self.CUE_TO_AGENT:
+                    handoff_agent = self.CUE_TO_AGENT[cue]
+                    handoff_cue = cue
+                    break
+
             # If file edit proposed, we pause here to let user review
             if file_edit_proposed:
+                self.last_handoff = handoff_agent
                 yield {
                     "type": "agent_done",
                     "agent": current_agent_name,
@@ -342,19 +354,12 @@ class AgentOrchestrator:
                 }
                 break
             
-            # Check for handoff
-            handoff_agent = None
-            for cue in cues:
-                if cue in self.CUE_TO_AGENT:
-                    handoff_agent = self.CUE_TO_AGENT[cue]
-                    break
-            
             if handoff_agent:
                 yield {
                     "type": "handoff",
                     "from_agent": current_agent_name,
                     "to_agent": handoff_agent,
-                    "cue": cue
+                    "cue": handoff_cue
                 }
                 
                 # Set up for next turn
@@ -376,7 +381,42 @@ class AgentOrchestrator:
             "conversation_length": len(self.conversation)
         }
     
+    async def handle_approval_signal(self, approved: bool, feedback: str = None) -> Dict:
+        """Handle signal from UI that approval/rejection is complete"""
+        # Determine next agent
+        current_agent_name = None
+        message = ""
+        
+        # Get the agent who last spoke (from history)
+        last_msg = self.conversation[-1] if self.conversation else None
+        last_agent_name = last_msg.agent if last_msg else "Senior Dev"
+        
+        if approved:
+            if self.last_handoff:
+                current_agent_name = self.last_handoff
+                message = f"User approved the changes. {last_agent_name} has handed off to you. Please proceed."
+            else:
+                current_agent_name = last_agent_name
+                message = "User approved the changes. Great job! Is there anything else?"
+        else:
+            # Rejection - stick with same agent or go to requester if feedback exists
+            current_agent_name = last_agent_name
+            message = "User rejected the changes"
+            if feedback:
+                message += f" with feedback: {feedback}"
+            else:
+                message += ". Please try a different approach."
+        
+        # Clear last handoff
+        self.last_handoff = None
+        
+        return {
+            "next_agent": current_agent_name,
+            "message": message
+        }
+
     def clear_conversation(self):
         """Clear conversation history"""
         self.conversation = []
+        self.last_handoff = None
         return {"status": "cleared"}

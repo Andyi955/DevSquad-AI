@@ -242,18 +242,38 @@ function App() {
     })
   }, [isConnected, wsSend, files, selectedFile])
 
-  const approveChange = async (changeId, approved) => {
+  const approveChange = async (changeId, approved, feedback = null) => {
     try {
       await fetch(`${API_URL}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ change_id: changeId, approved })
       })
+
       setPendingChanges(prev => prev.filter(c => c.change_id !== changeId))
       setActiveChange(null)
+
       if (approved) fetchFiles()
+
+      // Signal orchestration to resume
+      wsSend({
+        type: 'approval_done',
+        approved,
+        feedback,
+        context: {
+          files,
+          current_file: selectedFile ? {
+            path: selectedFile.path,
+            content: await fetch(`${API_URL}/files/${selectedFile.path.replace(/\//g, '%2F')}`)
+              .then(res => res.json())
+              .then(data => data.content)
+              .catch(() => null)
+          } : null
+        }
+      })
     } catch (err) {
       console.error('Approval failed:', err)
+      showToast('Action failed ❌')
     }
   }
 

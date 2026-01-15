@@ -192,14 +192,14 @@ async def websocket_agents(websocket: WebSocket):
     
     current_task: Optional[asyncio.Task] = None
     
-    async def run_agent_stream(message: str, context: dict):
+    async def run_agent_stream(message: str, context: dict, initial_agent: str = None):
         try:
             # Add files context if not provided
             if "files" not in context:
                 context["files"] = await file_manager.list_files()
             
             # Stream agent responses
-            async for event in orchestrator.process_message_stream(message, context):
+            async for event in orchestrator.process_message_stream(message, context, initial_agent=initial_agent):
                 await websocket.send_json(event)
         except asyncio.CancelledError:
             print("Agent task cancelled")
@@ -223,6 +223,25 @@ async def websocket_agents(websocket: WebSocket):
                 # Start new streaming task
                 current_task = asyncio.create_task(run_agent_stream(message, context))
                 
+            elif data.get("type") == "approval_done":
+                # Handle approval signal
+                approved = data.get("approved", True)
+                feedback = data.get("feedback")
+                
+                # Get signal from orchestrator
+                signal = await orchestrator.handle_approval_signal(approved, feedback)
+                
+                # Start new streaming task to resume
+                if current_task and not current_task.done():
+                    current_task.cancel()
+                
+                context = data.get("context", {})
+                current_task = asyncio.create_task(run_agent_stream(
+                    message=signal["message"], 
+                    context=context,
+                    initial_agent=signal["next_agent"]
+                ))
+
             elif data.get("type") == "stop":
                 if current_task and not current_task.done():
                     current_task.cancel()

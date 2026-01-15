@@ -3,7 +3,11 @@
  * Shows proposed file changes for approval
  */
 
+import { useState } from 'react'
+
 function ApprovalModal({ change, onApprove, onReject, onClose }) {
+    const [feedback, setFeedback] = useState('')
+
     if (!change) return null
 
     // Simple diff view
@@ -16,7 +20,7 @@ function ApprovalModal({ change, onApprove, onReject, onClose }) {
                 <div className="diff-header">
                     {change.action === 'create' ? '➕ New File' : '✏️ Edit'}: {change.path}
                 </div>
-                <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
                     {change.action === 'create' ? (
                         // New file - show all as added
                         newLines.map((line, i) => (
@@ -38,16 +42,12 @@ function ApprovalModal({ change, onApprove, onReject, onClose }) {
                                     }}>
                                         Old Content
                                     </div>
-                                    {oldLines.slice(0, 20).map((line, i) => (
+                                    {oldLines.slice(0, 10).map((line, i) => (
                                         <div key={`old-${i}`} className="diff-line removed">
                                             - {line}
                                         </div>
                                     ))}
-                                    {oldLines.length > 20 && (
-                                        <div style={{ padding: '8px 16px', color: 'var(--text-muted)' }}>
-                                            ... and {oldLines.length - 20} more lines
-                                        </div>
-                                    )}
+                                    {oldLines.length > 10 && <div style={{ padding: '8px 16px', color: 'var(--text-muted)' }}>...</div>}
                                 </div>
                             )}
                             <div>
@@ -59,16 +59,12 @@ function ApprovalModal({ change, onApprove, onReject, onClose }) {
                                 }}>
                                     New Content
                                 </div>
-                                {newLines.slice(0, 20).map((line, i) => (
+                                {newLines.slice(0, 10).map((line, i) => (
                                     <div key={`new-${i}`} className="diff-line added">
                                         + {line}
                                     </div>
                                 ))}
-                                {newLines.length > 20 && (
-                                    <div style={{ padding: '8px 16px', color: 'var(--text-muted)' }}>
-                                        ... and {newLines.length - 20} more lines
-                                    </div>
-                                )}
+                                {newLines.length > 10 && <div style={{ padding: '8px 16px', color: 'var(--text-muted)' }}>...</div>}
                             </div>
                         </>
                     )}
@@ -82,7 +78,7 @@ function ApprovalModal({ change, onApprove, onReject, onClose }) {
             <div className="modal" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header">
                     <h3 className="modal-title">
-                        ⚡ Approve File Change?
+                        ⚡ Review Change
                     </h3>
                     <button className="modal-close" onClick={onClose}>
                         ×
@@ -92,13 +88,7 @@ function ApprovalModal({ change, onApprove, onReject, onClose }) {
                 <div className="modal-body">
                     {/* Agent Info */}
                     {change.agent && (
-                        <div style={{
-                            marginBottom: '16px',
-                            padding: '8px 12px',
-                            background: 'var(--glass-bg)',
-                            borderRadius: 'var(--radius-md)',
-                            fontSize: '0.875rem'
-                        }}>
+                        <div style={{ marginBottom: '12px', fontSize: '0.875rem' }}>
                             Proposed by: <strong>{change.agent}</strong>
                         </div>
                     )}
@@ -106,24 +96,25 @@ function ApprovalModal({ change, onApprove, onReject, onClose }) {
                     {/* Diff View */}
                     {renderDiff()}
 
-                    {/* Warning */}
-                    <div style={{
-                        marginTop: '16px',
-                        padding: '12px',
-                        background: 'rgba(245, 158, 11, 0.1)',
-                        border: '1px solid var(--neon-amber)',
-                        borderRadius: 'var(--radius-md)',
-                        fontSize: '0.875rem'
-                    }}>
-                        ⚠️ This will modify files in your workspace. Review carefully before approving.
+                    <div style={{ marginTop: '16px' }}>
+                        <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                            Feedback / Instructions (Optional)
+                        </label>
+                        <textarea
+                            className="chat-input"
+                            style={{ width: '100%', minHeight: '60px', borderRadius: 'var(--radius-md)', padding: '8px' }}
+                            placeholder="e.g. Looks good, now please add tests."
+                            value={feedback}
+                            onChange={(e) => setFeedback(e.target.value)}
+                        />
                     </div>
                 </div>
 
                 <div className="modal-footer">
-                    <button className="btn btn-secondary" onClick={onReject}>
+                    <button className="btn btn-secondary" onClick={() => onReject(feedback)}>
                         ❌ Reject
                     </button>
-                    <button className="btn btn-success" onClick={onApprove}>
+                    <button className="btn btn-success" onClick={() => onApprove(feedback)}>
                         ✅ Approve
                     </button>
                 </div>
