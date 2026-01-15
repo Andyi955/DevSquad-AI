@@ -254,6 +254,7 @@ pre {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 
 .chat-messages {
@@ -529,6 +530,7 @@ pre {
   padding: var(--space-lg);
   border-top: 1px solid var(--border-color);
   background: var(--bg-secondary);
+  position: relative;
 }
 
 .chat-input-wrapper {
@@ -560,6 +562,66 @@ pre {
 
 .chat-input::placeholder {
   color: var(--text-muted);
+}
+
+/* ============== Continue Prompt Banner ============== */
+.continue-prompt-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--neon-purple);
+  border-bottom: none;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: var(--space-sm) var(--space-md);
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  transform: translateY(-100%);
+  z-index: 10;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.5);
+  animation: elevator-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes elevator-up {
+  from {
+    transform: translateY(0);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(-100%);
+    opacity: 1;
+  }
+}
+
+.continue-prompt-content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex: 1;
+}
+
+.continue-prompt-text {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.btn-continue-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition-fast);
+}
+
+.btn-continue-dismiss:hover {
+  color: var(--neon-pink);
 }
 
 /* ============== File List ============== */
@@ -1062,6 +1124,7 @@ pre {
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -1073,6 +1136,7 @@ pre {
     opacity: 1;
     transform: translateY(0);
   }
+
   to {
     opacity: 0;
     transform: translateY(-20px);

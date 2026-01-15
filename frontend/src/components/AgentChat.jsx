@@ -27,9 +27,19 @@ function AgentChat({
     isStopped
 }) {
     const [input, setInput] = useState('')
+    const [showContinuePrompt, setShowContinuePrompt] = useState(false)
 
     const messagesEndRef = useRef(null)
     const inputRef = useRef(null)
+
+    // Show continue prompt when stopped
+    useEffect(() => {
+        if (isStopped) {
+            setShowContinuePrompt(true)
+        } else {
+            setShowContinuePrompt(false)
+        }
+    }, [isStopped])
 
     // Auto-scroll to bottom
     useEffect(() => {
@@ -44,14 +54,17 @@ function AgentChat({
         }
     }
 
+    const handleContinue = () => {
+        onSendMessage("Please continue")
+        setShowContinuePrompt(false)
+    }
+
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             handleSubmit(e)
         }
     }
-
-
 
     const formatTime = (date) => {
         return new Date(date).toLocaleTimeString([], {
@@ -244,8 +257,31 @@ function AgentChat({
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* Input */}
+            {/* Input Container */}
             <div className="chat-input-container">
+                {showContinuePrompt && (
+                    <div className="continue-prompt-banner">
+                        <div className="continue-prompt-content">
+                            <span className="continue-prompt-text">Conversation was stopped. Would you like to continue?</span>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={handleContinue}
+                                style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+                            >
+                                🔄 Continue
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            className="btn-continue-dismiss"
+                            onClick={() => setShowContinuePrompt(false)}
+                            title="Dismiss"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                )}
                 <form onSubmit={handleSubmit} className="chat-input-wrapper">
                     <textarea
                         ref={inputRef}
@@ -265,15 +301,6 @@ function AgentChat({
                             title="Stop generating"
                         >
                             🛑 Stop
-                        </button>
-                    ) : isStopped ? (
-                        <button
-                            type="button"
-                            className="btn btn-secondary"
-                            onClick={() => onSendMessage("Please continue")}
-                            title="Continue conversation"
-                        >
-                            🔄 Continue
                         </button>
                     ) : (
                         <button
