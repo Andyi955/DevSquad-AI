@@ -26,6 +26,7 @@ function App() {
   const [researchResults, setResearchResults] = useState([])
   const [isStopped, setIsStopped] = useState(false)
   const [toasts, setToasts] = useState([])
+  const [attachedFiles, setAttachedFiles] = useState([])
 
   // Handle incoming WebSocket messages
   const handleMessage = useCallback((data) => {
@@ -186,23 +187,40 @@ function App() {
     }, 3000)
   }, [])
 
+  const attachFiles = useCallback(async (filesToAttach) => {
+    const filesArray = Array.isArray(filesToAttach) ? filesToAttach : [filesToAttach]
+    const newAttachments = []
+
+    for (const file of filesArray) {
+      if (attachedFiles.find(f => f.path === file.path)) continue
+
+      try {
+        const res = await fetch(`${API_URL}/files/${file.path.replace(/\//g, '%2F')}`)
+        if (res.ok) {
+          const data = await res.json()
+          newAttachments.push({
+            path: file.path,
+            content: data.content,
+            extension: file.extension
+          })
+        }
+      } catch (err) {
+        console.error(`Failed to attach ${file.path}:`, err)
+      }
+    }
+
+    if (newAttachments.length > 0) {
+      setAttachedFiles(prev => [...prev, ...newAttachments])
+      showToast(`Attached ${newAttachments.length} file(s)`, '📎')
+    }
+  }, [attachedFiles, showToast])
+
+  const removeAttachedFile = useCallback((path) => {
+    setAttachedFiles(prev => prev.filter(f => f.path !== path))
+  }, [])
+
   const sendChatMessage = useCallback(async (message) => {
     if (!isConnected || !message.trim()) return
-
-    // Funny messages for missing file selection
-    const missingFileQuips = [
-      "I don't think he knows he has to select a file... 🤔",
-      "Searching for code in the digital void? Please select a file! 🔦",
-      "Invisible ink isn't supported yet. Select a file first! 🖋️",
-      "The agents are confused. They need a file to look at! 🤖",
-      "Wait! You forgot to highlight a file in the left panel. 👈"
-    ]
-
-    if (!selectedFile) {
-      const quip = missingFileQuips[Math.floor(Math.random() * missingFileQuips.length)]
-      showToast(quip)
-      return
-    }
 
     // Add user message
     setMessages(prev => [...prev, {
@@ -237,10 +255,11 @@ function App() {
       message,
       context: {
         files,
-        current_file: currentFileValid
+        current_file: currentFileValid,
+        attached_files: attachedFiles
       }
     })
-  }, [isConnected, wsSend, files, selectedFile])
+  }, [isConnected, wsSend, files, selectedFile, attachedFiles])
 
   const approveChange = async (changeId, approved, feedback = null) => {
     try {
@@ -268,7 +287,8 @@ function App() {
               .then(res => res.json())
               .then(data => data.content)
               .catch(() => null)
-          } : null
+          } : null,
+          attached_files: attachedFiles
         }
       })
     } catch (err) {
@@ -304,6 +324,7 @@ function App() {
         selectedFile={selectedFile}
         onSelectFile={setSelectedFile}
         onUpload={uploadFiles}
+        onAttachFiles={attachFiles}
       />
 
       <main className="main-content">
@@ -315,6 +336,9 @@ function App() {
           isConnected={isConnected}
           onStop={stopAgent}
           isStopped={isStopped}
+          attachedFiles={attachedFiles}
+          onAttachFiles={attachFiles}
+          onRemoveFile={removeAttachedFile}
         />
       </main>
 

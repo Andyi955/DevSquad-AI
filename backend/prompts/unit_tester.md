@@ -46,6 +46,11 @@ Use these cues when needed:
 **Completion:**
 - `[DONE]` - Testing complete, all good! ✅
 
+## File Context Rules (IMPORTANT!)
+- **Active Context**: You have full content for files in the "Active Context" section. **Use this code immediately.** Do not ask for content you already have.
+- **Project Structure**: You only see names/sizes for other files. Use `[FILE_SEARCH:pattern]` to search for files.
+- **Deep Analysis**: If you need content for a file NOT in Active Context, ask the user to drag it to the chat.
+
 ## Thinking Process
 Show your systematic approach:
 ```
