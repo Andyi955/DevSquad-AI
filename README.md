@@ -26,7 +26,9 @@ A fun, interactive web application where AI agents (DeepSeek & Gemini) collabora
 ### Highlights
 - 🎬 **Real-time streaming** - Watch agents think and respond live
 - 💭 **Thought bubbles** - See agent reasoning (collapsible)
-- ✏️ **File editing** - Agents can create/edit files with your approval
+- ✏️ **File management** - Agents can create, edit, or delete files with your approval
+- ⚡ **Review Changes Panel** - Dedicated side-panel to review and approve/reject multiple changes
+- 🌈 **Color-coded Diffs** - Visual representation of code additions and removals
 - 🌐 **Web research** - Agents browse docs, Stack Overflow, GitHub
 - 🎨 **Neon dark theme** - Beautiful UI with fun animations
 - 📊 **Usage tracking** - Monitor API usage and costs
@@ -137,15 +139,20 @@ Agents communicate via special cues in their responses:
 | `[→JUNIOR]` | Pass to Junior Dev |
 | `[→TESTER]` | Pass to Unit Tester |
 | `[→RESEARCH]` | Request web research |
+| `[FILE_SEARCH:pattern]` | Search for files in the workspace |
+| `[READ_FILE:path]` | Read file content in background (stays out of chat) |
 | `[EDIT_FILE:path]` | Propose file edit (requires approval) |
+| `[CREATE_FILE:path]` | Create a new file (requires approval) |
+| `[DELETE_FILE:path]` | Propose file deletion (requires approval) |
 | `[DONE]` | Task complete |
 
 ### File Safety
 - ✅ Create new files
 - ✅ Edit existing files
-- ❌ Delete files (disabled)
+- ✅ Delete files (requires explicit approval)
 - 🔒 All changes require user approval
 - 📁 Only operates in `/workspace` folder
+- 🧹 **Code Suppression**: Raw code blocks are hidden from chat and moved to the Review Panel
 
 ---
 

@@ -27,11 +27,13 @@ function AgentChat({
     isStopped,
     attachedFiles = [],
     onAttachFiles,
-    onRemoveFile
+    onRemoveFile,
+    onShowChanges
 }) {
     const [input, setInput] = useState('')
     const [showContinuePrompt, setShowContinuePrompt] = useState(false)
     const [isDraggingFile, setIsDraggingFile] = useState(false)
+    const [agentStatus, setAgentStatus] = useState('')
 
     const getFileIcon = (ext) => {
         const icons = {
@@ -52,19 +54,24 @@ function AgentChat({
     const messagesEndRef = useRef(null)
     const inputRef = useRef(null)
 
-    // Show continue prompt when stopped
+    // Handle agent status updates from messages
     useEffect(() => {
-        if (isStopped) {
-            setShowContinuePrompt(true)
-        } else {
-            setShowContinuePrompt(false)
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg && lastMsg.type === 'agent_status') {
+            setAgentStatus(lastMsg.status);
+        } else if (lastMsg && (lastMsg.type === 'agent_done' || lastMsg.complete)) {
+            // Keep status for a moment after completion so it's readable
+            const timer = setTimeout(() => {
+                setAgentStatus('');
+            }, 1000);
+            return () => clearTimeout(timer);
         }
-    }, [isStopped])
+    }, [messages]);
 
     // Auto-scroll to bottom
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'auto' })
-    }, [messages.length, isTyping]) // Scroll on new message count or typing change
+    }, [messages.length, isTyping, agentStatus]) // Scroll on new message count, typing change, or status change
 
     const handleSubmit = (e) => {
         e.preventDefault()
@@ -142,33 +149,61 @@ function AgentChat({
         const agent = AGENTS[msg.agent] || AGENTS['User']
         const isUser = msg.isUser
 
-        return (
-            <div key={msg.id} className="message">
+        // Check for file change metadata to show diff summary
+        let diffSummary = null;
+        if (msg.type === 'file_change' || msg.file_change) {
+            const change = msg.file_change || msg;
+            const addedLines = (change.new_content?.split('\n').length || 0);
+            const removedLines = (change.old_content?.split('\n').length || 0);
+
+            diffSummary = (
                 <div
-                    className={`message-avatar ${agent.class}`}
-                    style={{ background: agent.color }}
+                    className="diff-summary-chip clickable"
+                    onClick={() => onShowChanges && onShowChanges()}
+                    style={{ cursor: 'pointer' }}
+                    title="Click to view details in Review Panel"
                 >
-                    {agent.emoji}
+                    <span className="add">+{addedLines}</span>
+                    <span className="remove">-{removedLines}</span>
+                    <span className="file-path">{change.path}</span>
                 </div>
+            );
+        }
+
+        const content = msg.concise_message || msg.content;
+
+        return (
+            <div key={msg.id} className={`${msg.type === 'agent_status' ? 'status-message' : 'message'}`}>
+                {msg.type !== 'agent_status' && (
+                    <div
+                        className={`message-avatar ${agent.class}`}
+                        style={{ background: agent.color }}
+                    >
+                        {agent.emoji}
+                    </div>
+                )}
 
                 <div className="message-content">
-                    <div className="message-header">
-                        <span
-                            className={`message-name ${agent.class}`}
-                            style={{ color: agent.color }}
-                        >
-                            {msg.agent}
-                        </span>
-                        <span className="message-time">{formatTime(msg.timestamp)}</span>
-                    </div>
+                    {msg.type !== 'agent_status' && (
+                        <div className="message-header">
+                            <span
+                                className={`message-name ${agent.class}`}
+                                style={{ color: agent.color }}
+                            >
+                                {msg.agent}
+                            </span>
+                            <span className="message-time">{formatTime(msg.timestamp)}</span>
+                        </div>
+                    )}
 
                     <div
-                        className="message-body"
+                        className={msg.type === 'agent_status' ? 'status-body' : 'message-body'}
                         style={isUser ? {
                             background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-blue))',
                             color: 'white'
                         } : {}}
                     >
+                        {msg.type === 'agent_status' && <span className="status-spinner">⚙️</span>}
                         <ReactMarkdown
                             rehypePlugins={[rehypeHighlight]}
                             components={{
@@ -198,8 +233,9 @@ function AgentChat({
                                 }
                             }}
                         >
-                            {msg.content}
+                            {content}
                         </ReactMarkdown>
+                        {diffSummary}
                     </div>
 
                     {/* Native Collapsible Thoughts */}
@@ -278,7 +314,15 @@ function AgentChat({
                         </div>
                     </div>
                 ) : (
-                    messages.map(renderMessage)
+                    messages.filter(m => m.type !== 'agent_status').map(renderMessage)
+                )}
+
+                {/* Agent Status (Background Tasks) */}
+                {agentStatus && (
+                    <div className="status-message-inline">
+                        <span className="status-spinner-small">⏳</span>
+                        <span>{agentStatus}</span>
+                    </div>
                 )}
 
                 {/* Typing Indicator */}

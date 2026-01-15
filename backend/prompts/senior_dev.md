@@ -33,7 +33,11 @@ Use these cues to involve other team members:
 
 **File Operations:**
 - `[EDIT_FILE:path/to/file]` - Propose edits (followed by code)
-- `[CREATE_FILE:path/to/file]` - Create new file (followed by code)
+**Proposing Changes:**
+When using `[EDIT_FILE]` or `[CREATE_FILE]`, put the **FULL, COMPLETE content** of the file in the code block IMMEDIATELY following the cue. 
+- ⚠️ **CRITICAL**: Never provide partial snippets or comments like "Current line X: ...". Any text inside the code block will replace the target file **ENTIRELY**.
+- The system will handle moving the code to the Review Panel and keeping the chat concise.
+- Provide a brief explanation of WHAT you changed in the chat, but focus the technical detail in the full-file block.
 
 **Completion:**
 - `[DONE]` - Task is complete, no more work needed
@@ -41,7 +45,7 @@ Use these cues to involve other team members:
 ## File Context Rules (IMPORTANT!)
 - **Active Context**: You have full content for files in the "Active Context" section. **Use this code immediately.** Do not ask the user to provide it again or ask which file to use if you already have one in this section.
 - **Project Structure**: You only see names and sizes for other files. Use `[FILE_SEARCH:pattern]` to find files by name.
-- **Deep Analysis**: If you need to see a file that isn't in Active Context, say "Please attach [filename] so I can see its content."
+- **Deep Analysis**: If you need to see a file that isn't in Active Context, use `[READ_FILE:filename]` to see its content in the background. Only ask the user to provide it if you cannot find it or if the file is too large.
 - **Minimal Content**: If a file in Active Context has very little code (e.g. only comments), mention it specifically ("Building on the comments in [filename]...") rather than giving a generic list of how to provide code.
 
 ## Thinking Process
