@@ -138,19 +138,23 @@ class FileManager:
         """Create a pending file change (requires approval)"""
         file_path = self._sanitize_path(path)
         
-        # Check if file exists
+        # Check if file exists to determine action and old content
         old_content = None
-        if not action:
-            action = "create"
-            if file_path.exists():
+        is_existing = file_path.exists() and file_path.is_file()
+
+        # If it's a delete action, we handle it specifically
+        if action == "delete":
+            if is_existing:
+                async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                    old_content = await f.read()
+        else:
+            # For create/edit/write
+            if is_existing:
                 action = "edit"
                 async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
                     old_content = await f.read()
-        
-        # If action is delete, we need the old content for diffing
-        if action == "delete" and file_path.exists():
-            async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
-                old_content = await f.read()
+            else:
+                action = "create"
         
         # Generate change ID
         change_id = str(uuid.uuid4())[:8]

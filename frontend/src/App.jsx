@@ -20,6 +20,7 @@ function App() {
   const [selectedFile, setSelectedFile] = useState(null)
   const [messages, setMessages] = useState([])
   const [pendingChanges, setPendingChanges] = useState([])
+  const [approvedChanges, setApprovedChanges] = useState([]) // New state for history
   const [activeChange, setActiveChange] = useState(null)
   const [usage, setUsage] = useState(null)
   const [isTyping, setIsTyping] = useState(false)
@@ -28,7 +29,8 @@ function App() {
   const [isStopped, setIsStopped] = useState(false)
   const [toasts, setToasts] = useState([])
   const [attachedFiles, setAttachedFiles] = useState([])
-  const [rightPanelTab, setRightPanelTab] = useState('research') // 'research' or 'changes'
+  const [rightPanelTab, setRightPanelTab] = useState('research')
+  const [isChangesFullScreen, setIsChangesFullScreen] = useState(false)
 
   // Handle incoming WebSocket messages
   const handleMessage = useCallback((data) => {
@@ -92,7 +94,12 @@ function App() {
         break
 
       case 'file_change':
-        setPendingChanges(prev => [...prev, data])
+        setPendingChanges(prev => {
+          // Prevent duplicates: check if change_id already exists
+          const exists = prev.some(c => c.change_id === data.change_id || c.id === data.change_id);
+          if (exists) return prev;
+          return [...prev, data];
+        })
         // If the backend sent a concise version, update the last message
         if (data.concise_message) {
           setMessages(prev => {
@@ -303,14 +310,28 @@ function App() {
 
   const approveChange = async (changeId, approved, feedback = null) => {
     try {
-      await fetch(`${API_URL}/approve`, {
+      const res = await fetch(`${API_URL}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ change_id: changeId, approved })
       })
+      const data = await res.json()
 
-      setPendingChanges(prev => prev.filter(c => (c.change_id !== changeId && c.id !== changeId)))
+      if (data.status === 'failed' || data.error) {
+        throw new Error(data.error || 'Approval failed on backend')
+      }
+
+      // Move to approvedChanges if approved, or just remove if rejected
+      setPendingChanges(prev => {
+        const changeToMove = prev.find(c => c.change_id === changeId || c.id === changeId);
+        if (approved && changeToMove) {
+          setApprovedChanges(approvals => [changeToMove, ...approvals].slice(0, 50)); // Keep last 50
+        }
+        return prev.filter(c => (c.change_id !== changeId && c.id !== changeId));
+      })
+
       setActiveChange(null)
+      setIsChangesFullScreen(false) // Auto-close full screen view
 
       if (approved) fetchFiles()
 
@@ -333,7 +354,7 @@ function App() {
       })
     } catch (err) {
       console.error('Approval failed:', err)
-      showToast('Action failed ❌')
+      showToast(`Action failed: ${err.message}`, '❌')
     }
   }
 
@@ -465,9 +486,12 @@ function App() {
           ) : (
             <ChangesPanel
               pendingChanges={pendingChanges}
+              approvedChanges={approvedChanges}
               onApprove={(id) => approveChange(id, true)}
               onReject={(id) => approveChange(id, false)}
               onApproveAll={approveAllChanges}
+              isFullScreen={false}
+              onToggleFullScreen={() => setIsChangesFullScreen(true)}
             />
           )}
         </div>
@@ -482,6 +506,18 @@ function App() {
         />
       )}
 
+      {/* Full Screen Changes Panel */}
+      {isChangesFullScreen && (
+        <ChangesPanel
+          pendingChanges={pendingChanges}
+          approvedChanges={approvedChanges}
+          onApprove={(id) => approveChange(id, true)}
+          onReject={(id) => approveChange(id, false)}
+          onApproveAll={approveAllChanges}
+          isFullScreen={true}
+          onToggleFullScreen={() => setIsChangesFullScreen(false)}
+        />
+      )}
 
       {/* Toast Notifications */}
       <div className="toast-container">

@@ -1,2 +1,6 @@
-# Let me first see what's in this file by opening it...
-# Actually, I need to see the current content first before making changes
+def main() -> None:
+    """A simple script with a custom greeting and status."""
+    print("eat my shorts!!")
+
+if __name__ == "__main__":
+    main()
