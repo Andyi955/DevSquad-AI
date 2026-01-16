@@ -411,14 +411,19 @@ pre {
 }
 
 .message-body code {
-  background: rgba(147, 51, 234, 0.15);
-  /* Tinted background for inline code */
+  background: rgba(147, 51, 234, 0.08);
+  /* More subtle background */
   color: var(--neon-purple);
-  /* colored text for inline */
-  padding: 0.2rem 0.4rem;
+  padding: 1px 4px;
+  /* Tighter padding for "word-size" fit */
   border-radius: var(--radius-sm);
-  font-size: 0.85em;
+  font-size: 0.9em;
+  /* Slightly larger than before (0.85em) for readability */
   font-weight: 500;
+  border: 1px solid rgba(147, 51, 234, 0.15);
+  /* Very thin subtle border */
+  vertical-align: baseline;
+  /* Ensure it aligns with text baseline */
 }
 
 .message-body pre {

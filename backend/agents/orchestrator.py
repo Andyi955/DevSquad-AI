@@ -173,6 +173,76 @@ class AgentOrchestrator:
                     })
         return edits
     
+    def _clean_message_for_display(self, message: str) -> str:
+        """
+        Clean up technical cues and placeholders for user-friendly display.
+        """
+        # 0. Flatten short code blocks that should have been inline
+        # Matches: ```language\nword\n``` with optional whitespace/newlines
+        # This fixes agents accidentally using block code for single words/filenames
+        def flatten_code_blocks(match):
+            content = match.group(1).strip()
+            # If it's short, has no spaces, or is just one line
+            if len(content) < 40 and "\n" not in content and " " not in content:
+                return f" `{content}` "
+            return match.group(0) # Keep as is if it's "real" code
+
+        message = re.sub(r'```(?:\w+)?\s*(.*?)\s*```', flatten_code_blocks, message, flags=re.DOTALL)
+
+        # 1. Remove file edit/create/delete placeholders (internal ones)
+        message = re.sub(r'\[File (Edit|Create|Delete): [^\]]+\]', '', message)
+        
+        # 2. Convert agent handoff cues to @ mentions
+        cue_to_mention = {
+            r'\[→SENIOR\]': '@Senior Dev',
+            r'\[→JUNIOR\]': '@Junior Dev', 
+            r'\[→TESTER\]': '@Unit Tester',
+            r'\[→RESEARCH\]': '@Researcher',
+        }
+        
+        for cue_pattern, mention in cue_to_mention.items():
+            message = re.sub(cue_pattern, mention, message)
+        
+        # 3. Remove [DONE] tags
+        message = re.sub(r'\[DONE\]', '', message)
+        
+        # 4. Remove technical cues with parameters
+        message = re.sub(r'\[(SEARCH|FILE_SEARCH|READ_FILE|EDIT_FILE|CREATE_FILE|DELETE_FILE):[^\]]+\]', '', message)
+        
+        # 5. Clean up "ghost" punctuation left by tag removal
+        # Remove trailing ":", " " and extra punctuation at ends of lines where tags were
+        message = re.sub(r'[:\s]+(\n|$)', r'\1', message)
+        
+        # Consolidate newlines (max 2)
+        message = re.sub(r'\n{3,}', '\n\n', message)
+
+        # Fix punctuation starting on a new line (common after tag removal)
+        # This turns:
+        # "Something
+        # . Next" -> "Something. Next"
+        message = re.sub(r'\n\s*([.,!?;])', r'\1', message)
+        
+        # FIRST: Clean up spaces between closing backticks and punctuation
+        # This handles cases like: "`code` ." -> "`code`."
+        message = re.sub(r'`\s+([.,!?;])', r'`\1', message)
+        
+        # THEN: Fix remaining spaces before punctuation (for normal text)
+        message = re.sub(r'(?<!`)\s+([.,!?;])(?![`])', r'\1', message)
+        
+        # CRITICAL: Strip punctuation immediately after triple-backtick code blocks
+        # Pattern matches: ``` followed by optional whitespace, then punctuation
+        # This prevents orphaned punctuation in the React UI
+        message = re.sub(r'```\s*([.,;!?:])', r'```', message)
+        
+        # Avoid hanging prepositions/conjunctions at ends of lines if they were followed by a tag
+        message = re.sub(r'\b(for|to|at|in|about|of|with|and|the)\s*\n', '\n', message)
+        
+        # 6. Final white-space collapse
+        message = re.sub(r' +', ' ', message)
+        message = message.strip()
+        
+        return message
+    
     async def process_message(
         self, 
         message: str, 
@@ -313,21 +383,6 @@ class AgentOrchestrator:
             if self.usage_tracker:
                 self.usage_tracker.track(agent.provider, 1)
             
-            # Save to conversation
-            msg = Message(
-                agent=current_agent_name, 
-                content=full_response,
-                thoughts=full_thoughts,
-                cues=self._extract_cues(full_response)
-            )
-            self.conversation.append(msg)
-            
-            # Update context with this response
-            full_context["conversation"].append({
-                "agent": current_agent_name,
-                "content": full_response
-            })
-            
             # Extract cues and determine next action
             cues = self._extract_cues(full_response)
             
@@ -336,6 +391,7 @@ class AgentOrchestrator:
             file_edit_proposed = False
             
             # Map of positions to replace to avoid overlapping substitutions
+            # Initialize this FIRST before using it later
             replacements = []
             
             for edit in all_edits:
@@ -408,19 +464,40 @@ class AgentOrchestrator:
                     }
                     file_edit_proposed = True
 
-            # If we had edits/deletions, create a unified concise message for the stream
+            # Create a cleaned version for user display (always)
+            clean_full_response = self._clean_message_for_display(full_response)
+            
+            # If we had replacements, we already have a partial clean_full_response
+            # but let's re-clean it properly to handle both cases (edits or just technical tags)
             if replacements:
-                # Sort replacements backwards to avoid shifting indices
-                replacements.sort(key=lambda x: x["start"], reverse=True)
-                clean_full_response = full_response
+                # Re-apply replacements to the full response first to get the placeholders
+                # then clean it using the display cleaner
+                temp_clean = full_response
                 for r in replacements:
-                    clean_full_response = clean_full_response[:r["start"]] + r["text"] + clean_full_response[r["end"]:]
+                    temp_clean = temp_clean[:r["start"]] + r["text"] + temp_clean[r["end"]:]
+                clean_full_response = self._clean_message_for_display(temp_clean)
+            
+            # Save to conversation - USE CLEANED/PLACEHOLDER VERSION
+            # This ensures agents don't see giant code blocks or old content in history
+            msg = Message(
+                agent=current_agent_name, 
+                content=clean_full_response,
+                thoughts=full_thoughts,
+                cues=cues
+            )
+            self.conversation.append(msg)
+            
+            # Update context with this response
+            full_context["conversation"].append({
+                "agent": current_agent_name,
+                "content": msg.content
+            })
                 
-                # Signal the final concise message
-                yield {
-                    "type": "message_update",
-                    "concise_message": clean_full_response
-                }
+            # Signal the final concise/cleaned message
+            yield {
+                "type": "message_update",
+                "concise_message": clean_full_response
+            }
             
             # Check for file read cues
             file_read_path = None
@@ -572,7 +649,7 @@ class AgentOrchestrator:
         if approved:
             if self.last_handoff:
                 current_agent_name = self.last_handoff
-                message = f"User approved the changes. {last_agent_name} has handed off to you. Please proceed."
+                message = f"The user has approved the file changes from {last_agent_name}. You've been called in to help with the next step. Please proceed with your expertise."
             else:
                 current_agent_name = last_agent_name
                 message = "User approved the changes. Great job! Is there anything else?"

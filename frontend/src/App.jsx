@@ -56,9 +56,16 @@ function App() {
         // Update or create message
         setMessages(prev => {
           const updated = [...prev]
-          const lastMsg = updated[updated.length - 1]
+          // Find the last real message (not status/handoff) from this agent
+          let lastMsg = null
+          for (let i = updated.length - 1; i >= 0; i--) {
+            if (updated[i].agent === data.agent && !updated[i].type) {
+              lastMsg = updated[i]
+              break
+            }
+          }
 
-          if (lastMsg && lastMsg.agent === data.agent && !lastMsg.complete) {
+          if (lastMsg && !lastMsg.complete) {
             lastMsg.content += data.content
           } else {
             updated.push({
@@ -100,19 +107,6 @@ function App() {
           if (exists) return prev;
           return [...prev, data];
         })
-        // If the backend sent a concise version, update the last message
-        if (data.concise_message) {
-          setMessages(prev => {
-            const updated = [...prev]
-            if (updated.length > 0) {
-              const last = updated[updated.length - 1]
-              if (!last.isUser) {
-                last.content = data.concise_message
-              }
-            }
-            return updated
-          })
-        }
         setRightPanelTab('changes') // Automatically switch to changes tab
         break
 
@@ -120,10 +114,12 @@ function App() {
         if (data.concise_message) {
           setMessages(prev => {
             const updated = [...prev]
-            if (updated.length > 0) {
-              const last = updated[updated.length - 1]
-              if (!last.isUser) {
-                last.content = data.concise_message
+            // Find the last non-user message
+            for (let i = updated.length - 1; i >= 0; i--) {
+              if (!updated[i].isUser && updated[i].type !== 'handoff') {
+                updated[i].concise_message = data.concise_message
+                // Mark as having a concise version
+                break
               }
             }
             return updated
