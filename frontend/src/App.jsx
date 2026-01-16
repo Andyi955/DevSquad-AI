@@ -6,6 +6,7 @@ import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import AgentChat from './components/AgentChat'
 import ResearchPanel from './components/ResearchPanel'
+import ChangesPanel from './components/ChangesPanel'
 import ApprovalModal from './components/ApprovalModal'
 
 // Hooks
@@ -19,6 +20,7 @@ function App() {
   const [selectedFile, setSelectedFile] = useState(null)
   const [messages, setMessages] = useState([])
   const [pendingChanges, setPendingChanges] = useState([])
+  const [approvedChanges, setApprovedChanges] = useState([]) // New state for history
   const [activeChange, setActiveChange] = useState(null)
   const [usage, setUsage] = useState(null)
   const [isTyping, setIsTyping] = useState(false)
@@ -27,6 +29,8 @@ function App() {
   const [isStopped, setIsStopped] = useState(false)
   const [toasts, setToasts] = useState([])
   const [attachedFiles, setAttachedFiles] = useState([])
+  const [rightPanelTab, setRightPanelTab] = useState('research')
+  const [isChangesFullScreen, setIsChangesFullScreen] = useState(false)
 
   // Handle incoming WebSocket messages
   const handleMessage = useCallback((data) => {
@@ -52,9 +56,16 @@ function App() {
         // Update or create message
         setMessages(prev => {
           const updated = [...prev]
-          const lastMsg = updated[updated.length - 1]
+          // Find the last real message (not status/handoff) from this agent
+          let lastMsg = null
+          for (let i = updated.length - 1; i >= 0; i--) {
+            if (updated[i].agent === data.agent && !updated[i].type) {
+              lastMsg = updated[i]
+              break
+            }
+          }
 
-          if (lastMsg && lastMsg.agent === data.agent && !lastMsg.complete) {
+          if (lastMsg && !lastMsg.complete) {
             lastMsg.content += data.content
           } else {
             updated.push({
@@ -90,7 +101,30 @@ function App() {
         break
 
       case 'file_change':
-        setPendingChanges(prev => [...prev, data])
+        setPendingChanges(prev => {
+          // Prevent duplicates: check if change_id already exists
+          const exists = prev.some(c => c.change_id === data.change_id || c.id === data.change_id);
+          if (exists) return prev;
+          return [...prev, data];
+        })
+        setRightPanelTab('changes') // Automatically switch to changes tab
+        break
+
+      case 'message_update':
+        if (data.concise_message) {
+          setMessages(prev => {
+            const updated = [...prev]
+            // Find the last non-user message
+            for (let i = updated.length - 1; i >= 0; i--) {
+              if (!updated[i].isUser && updated[i].type !== 'handoff') {
+                updated[i].concise_message = data.concise_message
+                // Mark as having a concise version
+                break
+              }
+            }
+            return updated
+          })
+        }
         break
 
       case 'research_results':
@@ -112,6 +146,15 @@ function App() {
           return updated
         })
         fetchUsage()
+        break
+
+      case 'agent_status':
+        setMessages(prev => [...prev, {
+          id: Date.now(),
+          type: 'agent_status',
+          status: data.status,
+          timestamp: new Date()
+        }])
         break
 
       case 'error':
@@ -263,14 +306,28 @@ function App() {
 
   const approveChange = async (changeId, approved, feedback = null) => {
     try {
-      await fetch(`${API_URL}/approve`, {
+      const res = await fetch(`${API_URL}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ change_id: changeId, approved })
       })
+      const data = await res.json()
 
-      setPendingChanges(prev => prev.filter(c => c.change_id !== changeId))
+      if (data.status === 'failed' || data.error) {
+        throw new Error(data.error || 'Approval failed on backend')
+      }
+
+      // Move to approvedChanges if approved, or just remove if rejected
+      setPendingChanges(prev => {
+        const changeToMove = prev.find(c => c.change_id === changeId || c.id === changeId);
+        if (approved && changeToMove) {
+          setApprovedChanges(approvals => [changeToMove, ...approvals].slice(0, 50)); // Keep last 50
+        }
+        return prev.filter(c => (c.change_id !== changeId && c.id !== changeId));
+      })
+
       setActiveChange(null)
+      setIsChangesFullScreen(false) // Auto-close full screen view
 
       if (approved) fetchFiles()
 
@@ -293,8 +350,23 @@ function App() {
       })
     } catch (err) {
       console.error('Approval failed:', err)
-      showToast('Action failed ❌')
+      showToast(`Action failed: ${err.message}`, '❌')
     }
+  }
+
+  const approveAllChanges = async () => {
+    if (pendingChanges.length === 0) return
+
+    // Copy pending changes to avoid issues during iteration
+    const changesToApprove = [...pendingChanges]
+
+    // We could potentially add a bulk approve endpoint on the backend, 
+    // but for now, we'll iterate
+    for (const change of changesToApprove) {
+      await approveChange(change.change_id || change.id, true)
+    }
+
+    showToast(`Approved all ${changesToApprove.length} changes!`, '✅')
   }
 
   const doResearch = async (query) => {
@@ -339,13 +411,87 @@ function App() {
           attachedFiles={attachedFiles}
           onAttachFiles={attachFiles}
           onRemoveFile={removeAttachedFile}
+          onShowChanges={() => setRightPanelTab('changes')}
         />
       </main>
 
-      <ResearchPanel
-        results={researchResults}
-        onSearch={doResearch}
-      />
+      <aside className="research-panel-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', borderLeft: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
+        <div className="panel-tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border-color)' }}>
+          <button
+            className={`panel-tab ${rightPanelTab === 'research' ? 'active' : ''}`}
+            onClick={() => setRightPanelTab('research')}
+            style={{
+              flex: 1,
+              padding: '12px',
+              background: rightPanelTab === 'research' ? 'rgba(6, 182, 212, 0.1)' : 'transparent',
+              color: rightPanelTab === 'research' ? 'var(--neon-cyan)' : 'var(--text-muted)',
+              border: 'none',
+              borderBottom: rightPanelTab === 'research' ? '2px solid var(--neon-cyan)' : 'none',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.75rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em'
+            }}
+          >
+            🔍 Research
+          </button>
+          <button
+            className={`panel-tab ${rightPanelTab === 'changes' ? 'active' : ''}`}
+            onClick={() => setRightPanelTab('changes')}
+            style={{
+              flex: 1,
+              padding: '12px',
+              background: rightPanelTab === 'changes' ? 'rgba(147, 51, 234, 0.1)' : 'transparent',
+              color: rightPanelTab === 'changes' ? 'var(--neon-purple)' : 'var(--text-muted)',
+              border: 'none',
+              borderBottom: rightPanelTab === 'changes' ? '2px solid var(--neon-purple)' : 'none',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.75rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              position: 'relative'
+            }}
+          >
+            ⚡ Changes
+            {pendingChanges.length > 0 && (
+              <span style={{
+                position: 'absolute',
+                top: '6px',
+                right: '12px',
+                background: 'var(--neon-purple)',
+                color: 'white',
+                fontSize: '0.65rem',
+                padding: '1px 5px',
+                borderRadius: '10px',
+                boxShadow: '0 0 5px var(--neon-purple)'
+              }}>
+                {pendingChanges.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          {rightPanelTab === 'research' ? (
+            <ResearchPanel
+              results={researchResults}
+              onSearch={doResearch}
+            />
+          ) : (
+            <ChangesPanel
+              pendingChanges={pendingChanges}
+              approvedChanges={approvedChanges}
+              onApprove={(id) => approveChange(id, true)}
+              onReject={(id) => approveChange(id, false)}
+              onApproveAll={approveAllChanges}
+              isFullScreen={false}
+              onToggleFullScreen={() => setIsChangesFullScreen(true)}
+            />
+          )}
+        </div>
+      </aside>
 
       {activeChange && (
         <ApprovalModal
@@ -356,20 +502,17 @@ function App() {
         />
       )}
 
-      {/* Pending changes indicator */}
-      {pendingChanges.length > 0 && (
-        <div
-          className="glass-card"
-          style={{
-            position: 'fixed',
-            bottom: '20px',
-            right: '20px',
-            cursor: 'pointer'
-          }}
-          onClick={() => setActiveChange(pendingChanges[0])}
-        >
-          ⚡ {pendingChanges.length} pending change(s) - Click to review
-        </div>
+      {/* Full Screen Changes Panel */}
+      {isChangesFullScreen && (
+        <ChangesPanel
+          pendingChanges={pendingChanges}
+          approvedChanges={approvedChanges}
+          onApprove={(id) => approveChange(id, true)}
+          onReject={(id) => approveChange(id, false)}
+          onApproveAll={approveAllChanges}
+          isFullScreen={true}
+          onToggleFullScreen={() => setIsChangesFullScreen(false)}
+        />
       )}
 
       {/* Toast Notifications */}

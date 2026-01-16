@@ -411,14 +411,19 @@ pre {
 }
 
 .message-body code {
-  background: rgba(147, 51, 234, 0.15);
-  /* Tinted background for inline code */
+  background: rgba(147, 51, 234, 0.08);
+  /* More subtle background */
   color: var(--neon-purple);
-  /* colored text for inline */
-  padding: 0.2rem 0.4rem;
+  padding: 1px 4px;
+  /* Tighter padding for "word-size" fit */
   border-radius: var(--radius-sm);
-  font-size: 0.85em;
+  font-size: 0.9em;
+  /* Slightly larger than before (0.85em) for readability */
   font-weight: 500;
+  border: 1px solid rgba(147, 51, 234, 0.15);
+  /* Very thin subtle border */
+  vertical-align: baseline;
+  /* Ensure it aligns with text baseline */
 }
 
 .message-body pre {
@@ -776,36 +781,97 @@ pre {
   justify-content: flex-end;
 }
 
-/* Diff View */
-.diff-view {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.8125rem;
-  background: var(--bg-primary);
-  border-radius: var(--radius-md);
-  overflow: hidden;
+/* ============== React Diff Viewer Customizations ============== */
+.diff-view-container {
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 }
 
-.diff-header {
-  padding: var(--space-sm) var(--space-md);
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-color);
-  font-weight: 500;
+/* Scrollbar styling for diff viewer */
+.diff-view-container::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
 
-.diff-line {
-  padding: 0.125rem var(--space-md);
-  white-space: pre-wrap;
-  word-break: break-all;
+.diff-view-container::-webkit-scrollbar-track {
+  background: #0a0a0f;
 }
 
-.diff-line.added {
-  background: rgba(34, 197, 94, 0.15);
-  color: var(--neon-green);
+.diff-view-container::-webkit-scrollbar-thumb {
+  background: rgba(147, 51, 234, 0.3);
+  border-radius: 4px;
 }
 
-.diff-line.removed {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+.diff-view-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(147, 51, 234, 0.5);
+}
+
+/* Override react-diff-viewer styles to match theme */
+.diff-view-container table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--font-mono);
+}
+
+.diff-view-container td {
+  vertical-align: top;
+  padding: 0;
+}
+
+.diff-view-container pre {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Line numbers and markers */
+.diff-view-container td.diff-gutter {
+  user-select: none;
+  min-width: 30px !important;
+  /* Force smaller gutter */
+  width: 30px !important;
+  text-align: right;
+  padding: 0 4px !important;
+  /* Reduced padding */
+  font-size: 0.7em;
+  opacity: 0.5;
+}
+
+.diff-view-container td.diff-gutter-col {
+  width: 30px !important;
+  /* Force column width */
+}
+
+/* Markers (+/-) */
+.diff-view-container td.diff-marker {
+  width: 16px !important;
+  padding: 0 !important;
+  text-align: center;
+  font-weight: bold;
+}
+
+/* Code content */
+.diff-view-container td.diff-content {
+  padding-left: 8px !important;
+}
+
+/* Fix table layout to prevent squishing */
+.diff-view-container table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+/* Ensure code column takes maximum space */
+.diff-view-container colgroup col.diff-content-col {
+  width: auto !important;
+}
+
+/* Responsive: unified view on narrow panels */
+@media (max-width: 768px) {
+  .diff-view-container td.diff-content {
+    width: auto;
+  }
 }
 
 /* ============== Agent Status ============== */
@@ -1164,6 +1230,7 @@ pre {
     display: none;
   }
 }
+
 /* Attached Files Styles */
 .attached-files-bar {
   display: flex;
@@ -1211,8 +1278,15 @@ pre {
 }
 
 @keyframes fadeIn-chip {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .btn-add-to-chat {
@@ -1249,10 +1323,84 @@ pre {
 
 .file-item {
   position: relative;
-  user-select: none; /* Prevent text selection during shift-click */
+  user-select: none;
+  /* Prevent text selection during shift-click */
 }
 
 /* Ensure the file name doesn't get squashed by the button */
 .file-name {
   margin-right: 4px;
+}
+
+/* ============== Diff Summary Chip ============== */
+.diff-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-elevated);
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  margin-top: 8px;
+  border: 1px solid var(--border-color);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.diff-summary-chip .add {
+  color: var(--neon-green);
+  font-weight: 600;
+}
+
+.diff-summary-chip .remove {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.diff-summary-chip .file-path {
+  color: var(--text-muted);
+  border-left: 1px solid var(--border-color);
+  padding-left: 8px;
+}
+
+/* ============== Status Messages ============== */
+.status-message-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: rgba(147, 51, 234, 0.05);
+  border: 1px dashed var(--neon-purple);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  margin: 8px 0;
+  animation: fadeIn 0.3s ease;
+}
+
+.status-spinner-small {
+  display: inline-block;
+  animation: spin 2s linear infinite;
+}
+
+.status-spinner {
+  display: inline-block;
+  margin-right: 8px;
+  animation: spin 2s linear infinite;
+}
+
+@keyframes subtle-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.4);
+  }
+
+  70% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 6px rgba(147, 51, 234, 0);
+  }
+
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(147, 51, 234, 0);
+  }
 }

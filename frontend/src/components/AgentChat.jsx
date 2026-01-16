@@ -27,11 +27,13 @@ function AgentChat({
     isStopped,
     attachedFiles = [],
     onAttachFiles,
-    onRemoveFile
+    onRemoveFile,
+    onShowChanges
 }) {
     const [input, setInput] = useState('')
     const [showContinuePrompt, setShowContinuePrompt] = useState(false)
     const [isDraggingFile, setIsDraggingFile] = useState(false)
+    const [agentStatus, setAgentStatus] = useState('')
 
     const getFileIcon = (ext) => {
         const icons = {
@@ -52,19 +54,24 @@ function AgentChat({
     const messagesEndRef = useRef(null)
     const inputRef = useRef(null)
 
-    // Show continue prompt when stopped
+    // Handle agent status updates from messages
     useEffect(() => {
-        if (isStopped) {
-            setShowContinuePrompt(true)
-        } else {
-            setShowContinuePrompt(false)
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg && lastMsg.type === 'agent_status') {
+            setAgentStatus(lastMsg.status);
+        } else if (lastMsg && (lastMsg.type === 'agent_done' || lastMsg.complete)) {
+            // Keep status for a moment after completion so it's readable
+            const timer = setTimeout(() => {
+                setAgentStatus('');
+            }, 1000);
+            return () => clearTimeout(timer);
         }
-    }, [isStopped])
+    }, [messages]);
 
     // Auto-scroll to bottom
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'auto' })
-    }, [messages.length, isTyping]) // Scroll on new message count or typing change
+    }, [messages.length, isTyping, agentStatus]) // Scroll on new message count, typing change, or status change
 
     const handleSubmit = (e) => {
         e.preventDefault()
@@ -142,39 +149,129 @@ function AgentChat({
         const agent = AGENTS[msg.agent] || AGENTS['User']
         const isUser = msg.isUser
 
-        return (
-            <div key={msg.id} className="message">
+        // Check for file change metadata to show diff summary
+        let diffSummary = null;
+        if (msg.type === 'file_change' || msg.file_change) {
+            const change = msg.file_change || msg;
+            const addedLines = (change.new_content?.split('\n').length || 0);
+            const removedLines = (change.old_content?.split('\n').length || 0);
+
+            diffSummary = (
                 <div
-                    className={`message-avatar ${agent.class}`}
-                    style={{ background: agent.color }}
+                    className="diff-summary-chip clickable"
+                    onClick={() => onShowChanges && onShowChanges()}
+                    style={{ cursor: 'pointer' }}
+                    title="Click to view details in Review Panel"
                 >
-                    {agent.emoji}
+                    <span className="add">+{addedLines}</span>
+                    <span className="remove">-{removedLines}</span>
+                    <span className="file-path">{change.path}</span>
                 </div>
+            );
+        }
+
+        const rawContent = msg.concise_message || msg.content || '';
+
+        // Clean up technical cues for display
+        let content = rawContent;
+        const mentionMap = {
+            'SENIOR': '@Senior Dev',
+            'JUNIOR': '@Junior Dev',
+            'TESTER': '@Unit Tester',
+            'RESEARCH': '@Researcher'
+        };
+
+        if (!msg.concise_message) {
+            // Hide fully formed technical tags
+            content = rawContent
+                .replace(/\[(EDIT_FILE|CREATE_FILE|DELETE_FILE|READ_FILE|SEARCH|FILE_SEARCH):[^\]]+\]/g, '')
+                .replace(/\[→(SENIOR|JUNIOR|TESTER|RESEARCH)\]/g, (match, p1) => mentionMap[p1] || match)
+                .replace(/\[File (Edit|Create|Delete): [^\]]+\]/g, '')
+                .replace(/\[DONE\]/g, '');
+
+            // Clean up ghost punctuation left by tag removal
+            // Remove trailing colons and extra dots at ends of lines/messages
+            content = content.replace(/[:\s]+(\n|$)/g, '$1');
+
+            // Consolidate newlines
+            content = content.replace(/\n{3,}/g, '\n\n');
+
+            // Fix punctuation starting on a new line (common after tag removal)
+            // This turns:
+            // "Something
+            // . Next" -> "Something. Next"
+            content = content.replace(/\n\s*([.,!?;])/g, '$1');
+
+            // FIRST: Clean up spaces between closing backticks and punctuation
+            content = content.replace(/`\s+([.,!?;])/g, '`$1');
+
+            // THEN: Fix remaining spaces before punctuation (for normal text)
+            content = content.replace(/(?<!`)\s+([.,!?;])(?![`])/g, '$1');
+
+            // Avoid hanging prepositions if they were followed by a tag
+            content = content.replace(/\b(for|to|at|in|about|of|with|and|the)\s*\n/g, '\n');
+
+            // Hide PARTIAL technical tags at the end of the stream (to prevent flashing)
+            const partialPatterns = ['EDIT_FILE', 'CREATE_FILE', 'DELETE_FILE', 'READ_FILE', 'SEARCH', 'FILE_SEARCH', '→SENIOR', '→JUNIOR', '→TESTER', '→RESEARCH', 'DONE'];
+            const lastOpenBracket = content.lastIndexOf('[');
+            if (lastOpenBracket !== -1) {
+                const afterBracket = content.slice(lastOpenBracket + 1);
+                if (partialPatterns.some(p => p.startsWith(afterBracket) || afterBracket.startsWith(p))) {
+                    content = content.slice(0, lastOpenBracket);
+                }
+            }
+
+            // Final cleanup
+            content = content.trim();
+        } else {
+            // Already concise from backend, use it directly
+            content = rawContent.replace(/\[→(SENIOR|JUNIOR|TESTER|RESEARCH)\]/g, (match, p1) => mentionMap[p1] || match);
+        }
+
+        return (
+            <div key={msg.id} className={`${msg.type === 'agent_status' ? 'status-message' : 'message'}`}>
+                {msg.type !== 'agent_status' && (
+                    <div
+                        className={`message-avatar ${agent.class}`}
+                        style={{ background: agent.color }}
+                    >
+                        {agent.emoji}
+                    </div>
+                )}
 
                 <div className="message-content">
-                    <div className="message-header">
-                        <span
-                            className={`message-name ${agent.class}`}
-                            style={{ color: agent.color }}
-                        >
-                            {msg.agent}
-                        </span>
-                        <span className="message-time">{formatTime(msg.timestamp)}</span>
-                    </div>
+                    {msg.type !== 'agent_status' && (
+                        <div className="message-header">
+                            <span
+                                className={`message-name ${agent.class}`}
+                                style={{ color: agent.color }}
+                            >
+                                {msg.agent}
+                            </span>
+                            <span className="message-time">{formatTime(msg.timestamp)}</span>
+                        </div>
+                    )}
 
                     <div
-                        className="message-body"
+                        className={msg.type === 'agent_status' ? 'status-body' : 'message-body'}
                         style={isUser ? {
                             background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-blue))',
                             color: 'white'
                         } : {}}
                     >
+                        {msg.type === 'agent_status' && <span className="status-spinner">⚙️</span>}
                         <ReactMarkdown
                             rehypePlugins={[rehypeHighlight]}
                             components={{
                                 code({ node, inline, className, children, ...props }) {
                                     const match = /language-(\w+)/.exec(className || '')
-                                    return !inline ? (
+                                    const content = String(children).replace(/\n$/, '')
+                                    // Heuristic: if code is short (buffer < 60 chars) and single line, force inline style
+                                    // even if markdown parser thought it was a block (e.g. from triple backticks)
+                                    const isShortSingleLine = content.length < 60 && !content.includes('\n')
+                                    const shouldRenderInline = inline || isShortSingleLine
+
+                                    return !shouldRenderInline ? (
                                         <code className={className} {...props} style={{
                                             display: 'block',
                                             padding: '1em',
@@ -188,9 +285,15 @@ function AgentChat({
                                         </code>
                                     ) : (
                                         <code className={className} {...props} style={{
-                                            background: 'rgba(255,255,255,0.15)',
-                                            padding: '2px 4px',
-                                            borderRadius: '4px'
+                                            background: 'rgba(147, 51, 234, 0.1)', // Matches CSS var(--neon-purple) with opacity
+                                            color: 'var(--neon-purple)',
+                                            padding: '2px 5px',
+                                            borderRadius: '4px',
+                                            fontSize: '0.9em',
+                                            fontWeight: '500',
+                                            border: '1px solid rgba(147, 51, 234, 0.15)',
+                                            verticalAlign: 'baseline',
+                                            fontFamily: 'var(--font-mono)'
                                         }}>
                                             {children}
                                         </code>
@@ -198,8 +301,9 @@ function AgentChat({
                                 }
                             }}
                         >
-                            {msg.content}
+                            {content}
                         </ReactMarkdown>
+                        {diffSummary}
                     </div>
 
                     {/* Native Collapsible Thoughts */}
@@ -278,7 +382,15 @@ function AgentChat({
                         </div>
                     </div>
                 ) : (
-                    messages.map(renderMessage)
+                    messages.filter(m => m.type !== 'agent_status').map(renderMessage)
+                )}
+
+                {/* Agent Status (Background Tasks) */}
+                {agentStatus && (
+                    <div className="status-message-inline">
+                        <span className="status-spinner-small">⏳</span>
+                        <span>{agentStatus}</span>
+                    </div>
                 )}
 
                 {/* Typing Indicator */}

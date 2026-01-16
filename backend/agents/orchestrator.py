@@ -112,23 +112,136 @@ class AgentOrchestrator:
         for pattern in file_searches:
             cues.append(f"FILE_SEARCH:{pattern.strip()}")
 
+        # Check for file delete cues
+        delete_pattern = r'\[DELETE_FILE:([^\]]+)\]'
+        deletes = re.findall(delete_pattern, content)
+        for path in deletes:
+            cues.append(f"DELETE:{path}")
+
+        # Check for file read cues
+        read_pattern = r'\[READ_FILE:([^\]]+)\]'
+        reads = re.findall(read_pattern, content)
+        for path in reads:
+            cues.append(f"READ:{path}")
+
         # Check for done cue
         if "[DONE]" in content:
             cues.append("DONE")
         
         return cues
     
-    def _extract_code_block(self, content: str) -> str:
-        """Extract the first code block from content, or return content if none found"""
-        # Look for ```code``` blocks
+    def _extract_code_block(self, content: str, start_index: int = 0) -> Optional[tuple[str, int, int]]:
+        """
+        Extract the first code block from content starting at start_index.
+        Returns: (code_content, start_pos, end_pos) or None
+        """
         pattern = r'```(?:\w+)?\n(.*?)\n```'
-        match = re.search(pattern, content, re.DOTALL)
+        match = re.search(pattern, content[start_index:], re.DOTALL)
         if match:
-            return match.group(1).strip()
+            code_start = start_index + match.start()
+            code_end = start_index + match.end()
+            return match.group(1).strip(), code_start, code_end
+        return None
+
+    def _extract_all_edits(self, full_response: str) -> List[dict]:
+        """
+        Find all file cues and associate them with their respective code blocks.
+        """
+        edits = []
+        # Find all EDIT/CREATE cues with their positions
+        cue_pattern = r'\[(EDIT|CREATE)_FILE:([^\]]+)\]'
+        for match in re.finditer(cue_pattern, full_response):
+            action = match.group(1).lower()
+            path = match.group(2)
+            cue_end = match.end()
+            
+            # Find the code block specifically AFTER this cue
+            extracted = self._extract_code_block(full_response, cue_end)
+            if extracted:
+                code_content, block_start, block_end = extracted
+                # Only associate if there isn't another cue between this one and the block
+                next_cue = re.search(cue_pattern, full_response[cue_end:block_start])
+                if not next_cue:
+                    edits.append({
+                        "action": action,
+                        "path": path,
+                        "content": code_content,
+                        "cue_start": match.start(),
+                        "cue_end": match.end(),
+                        "block_start": block_start,
+                        "block_end": block_end
+                    })
+        return edits
+    
+    def _clean_message_for_display(self, message: str) -> str:
+        """
+        Clean up technical cues and placeholders for user-friendly display.
+        """
+        # 0. Flatten short code blocks that should have been inline
+        # Matches: ```language\nword\n``` with optional whitespace/newlines
+        # This fixes agents accidentally using block code for single words/filenames
+        def flatten_code_blocks(match):
+            content = match.group(1).strip()
+            # If it's short, has no spaces, or is just one line
+            if len(content) < 40 and "\n" not in content and " " not in content:
+                return f" `{content}` "
+            return match.group(0) # Keep as is if it's "real" code
+
+        message = re.sub(r'```(?:\w+)?\s*(.*?)\s*```', flatten_code_blocks, message, flags=re.DOTALL)
+
+        # 1. Remove file edit/create/delete placeholders (internal ones)
+        message = re.sub(r'\[File (Edit|Create|Delete): [^\]]+\]', '', message)
         
-        # Fallback: if no code block but starts/ends with something look-alike
-        # or just return the trimmed content
-        return content.strip()
+        # 2. Convert agent handoff cues to @ mentions
+        cue_to_mention = {
+            r'\[→SENIOR\]': '@Senior Dev',
+            r'\[→JUNIOR\]': '@Junior Dev', 
+            r'\[→TESTER\]': '@Unit Tester',
+            r'\[→RESEARCH\]': '@Researcher',
+        }
+        
+        for cue_pattern, mention in cue_to_mention.items():
+            message = re.sub(cue_pattern, mention, message)
+        
+        # 3. Remove [DONE] tags
+        message = re.sub(r'\[DONE\]', '', message)
+        
+        # 4. Remove technical cues with parameters
+        message = re.sub(r'\[(SEARCH|FILE_SEARCH|READ_FILE|EDIT_FILE|CREATE_FILE|DELETE_FILE):[^\]]+\]', '', message)
+        
+        # 5. Clean up "ghost" punctuation left by tag removal
+        # Remove trailing ":", " " and extra punctuation at ends of lines where tags were
+        message = re.sub(r'[:\s]+(\n|$)', r'\1', message)
+        
+        # Consolidate newlines (max 2)
+        message = re.sub(r'\n{3,}', '\n\n', message)
+
+        # Fix punctuation starting on a new line (common after tag removal)
+        # This turns:
+        # "Something
+        # . Next" -> "Something. Next"
+        message = re.sub(r'\n\s*([.,!?;])', r'\1', message)
+        
+        # FIRST: Clean up spaces between closing backticks and punctuation
+        # This handles cases like: "`code` ." -> "`code`."
+        message = re.sub(r'`\s+([.,!?;])', r'`\1', message)
+        
+        # THEN: Fix remaining spaces before punctuation (for normal text)
+        message = re.sub(r'(?<!`)\s+([.,!?;])(?![`])', r'\1', message)
+        
+        # CRITICAL: Strip punctuation immediately after triple-backtick code blocks
+        # Pattern matches: ``` followed by optional whitespace, then punctuation
+        # This prevents orphaned punctuation in the React UI
+        message = re.sub(r'```\s*([.,;!?:])', r'```', message)
+        
+        # Avoid hanging prepositions/conjunctions at ends of lines if they were followed by a tag
+        message = re.sub(r'\b(for|to|at|in|about|of|with|and|the)\s*\n', '\n', message)
+        
+        # 6. Final white-space collapse
+        message = re.sub(r' +', ' ', message)
+        message = message.strip()
+        
+        return message
     
     async def process_message(
         self, 
@@ -219,6 +332,9 @@ class AgentOrchestrator:
             full_thoughts = ""
             
             # Stream agent response
+            suppress_message = False
+            last_was_cue = False
+
             async for event in agent.think(current_message, full_context):
                 if event.get("update_state"):
                     continue
@@ -232,74 +348,181 @@ class AgentOrchestrator:
                     }
                 elif event["type"] == "message":
                     full_response += event["content"]
-                    yield {
-                        "type": "message",
-                        "agent": current_agent_name,
-                        "content": event["content"]
-                    }
+                    
+                    # Heuristic: if we just saw an EDIT/CREATE cue, and this chunk starts a code block,
+                    # we start suppressing it from the chat stream.
+                    if (last_was_cue or "[EDIT_FILE:" in full_response or "[CREATE_FILE:" in full_response) and "```" in event["content"]:
+                        suppress_message = True
+                        yield {
+                            "type": "agent_status",
+                            "status": f"Generating code changes..."
+                        }
+
+                    if not suppress_message:
+                        yield {
+                            "type": "message",
+                            "agent": current_agent_name,
+                            "content": event["content"]
+                        }
+                    
+                    if "```" in event["content"] and suppress_message and full_response.count("```") % 2 == 0:
+                        # We closed the code block
+                        suppress_message = False
+
                 elif event["type"] == "error":
                     yield {
                         "type": "error",
                         "agent": current_agent_name,
                         "content": event["content"]
                     }
+                elif event["type"] == "cue":
+                    if event["content"] in ["EDIT_FILE", "CREATE_FILE", "DELETE_FILE"]:
+                        last_was_cue = True
             
             # Track usage
             if self.usage_tracker:
                 self.usage_tracker.track(agent.provider, 1)
             
-            # Save to conversation
+            # Extract cues and determine next action
+            cues = self._extract_cues(full_response)
+            
+            # Extract all file edits and associate with their code blocks
+            all_edits = self._extract_all_edits(full_response)
+            file_edit_proposed = False
+            
+            # Map of positions to replace to avoid overlapping substitutions
+            # Initialize this FIRST before using it later
+            replacements = []
+            
+            for edit in all_edits:
+                action = edit["action"]
+                path = edit["path"]
+                code_content = edit["content"]
+                
+                # Register pending change
+                change_id = await self.file_manager.create_pending_change(
+                    path=path,
+                    content=code_content,
+                    agent=current_agent_name,
+                    action=action
+                )
+                
+                pending_changes = self.file_manager.get_pending_changes()
+                change_details = next((c for c in pending_changes if c['id'] == change_id), None)
+                
+                if change_details:
+                    # Mark the range for placeholder replacement later
+                    placeholder = f"[File {action.capitalize()}: {path}]"
+                    replacements.append({
+                        "start": edit["cue_start"],
+                        "end": edit["block_end"],
+                        "text": placeholder
+                    })
+                    
+                    yield {
+                        "type": "file_change",
+                        "change_id": change_id,
+                        "action": action,
+                        "path": path,
+                        "agent": current_agent_name,
+                        "new_content": change_details['new_content'],
+                        "old_content": change_details['old_content'],
+                        "concise_message": None # We will build the full concise message once
+                    }
+                    file_edit_proposed = True
+            
+            # Check for deletions separately as they might not have code blocks
+            delete_pattern = r'\[DELETE_FILE:([^\]]+)\]'
+            for match in re.finditer(delete_pattern, full_response):
+                path = match.group(1)
+                change_id = await self.file_manager.create_pending_change(
+                    path=path,
+                    agent=current_agent_name,
+                    action="delete"
+                )
+                
+                pending_changes = self.file_manager.get_pending_changes()
+                change_details = next((c for c in pending_changes if c['id'] == change_id), None)
+                
+                if change_details:
+                    placeholder = f"[File Delete: {path}]"
+                    replacements.append({
+                        "start": match.start(),
+                        "end": match.end(),
+                        "text": placeholder
+                    })
+                    
+                    yield {
+                        "type": "file_change",
+                        "change_id": change_id,
+                        "action": "delete",
+                        "path": path,
+                        "agent": current_agent_name,
+                        "new_content": change_details['new_content'],
+                        "old_content": change_details['old_content'],
+                        "concise_message": None
+                    }
+                    file_edit_proposed = True
+
+            # Create a cleaned version for user display (always)
+            clean_full_response = self._clean_message_for_display(full_response)
+            
+            # If we had replacements, we already have a partial clean_full_response
+            # but let's re-clean it properly to handle both cases (edits or just technical tags)
+            if replacements:
+                # Re-apply replacements to the full response first to get the placeholders
+                # then clean it using the display cleaner
+                temp_clean = full_response
+                for r in replacements:
+                    temp_clean = temp_clean[:r["start"]] + r["text"] + temp_clean[r["end"]:]
+                clean_full_response = self._clean_message_for_display(temp_clean)
+            
+            # Save to conversation - USE CLEANED/PLACEHOLDER VERSION
+            # This ensures agents don't see giant code blocks or old content in history
             msg = Message(
                 agent=current_agent_name, 
-                content=full_response,
+                content=clean_full_response,
                 thoughts=full_thoughts,
-                cues=self._extract_cues(full_response)
+                cues=cues
             )
             self.conversation.append(msg)
             
             # Update context with this response
             full_context["conversation"].append({
                 "agent": current_agent_name,
-                "content": full_response
+                "content": msg.content
             })
+                
+            # Signal the final concise/cleaned message
+            yield {
+                "type": "message_update",
+                "concise_message": clean_full_response
+            }
             
-            # Extract cues and determine next action
-            cues = self._extract_cues(full_response)
-            
-            # Check for file changes
-            file_edit_proposed = False
+            # Check for file read cues
+            file_read_path = None
             for cue in cues:
-                if (cue.startswith("EDIT:") or cue.startswith("CREATE:")) and self.file_manager:
-                    # Extract file path and notify frontend
-                    path = cue.split(":", 1)[1]
-                    action = "edit" if cue.startswith("EDIT:") else "create"
-                    
-                    # Extract actual code from response
-                    code_content = self._extract_code_block(full_response)
-                    
-                    # Register pending change in file_manager to get an ID
-                    change_id = await self.file_manager.create_pending_change(
-                        path=path,
-                        content=code_content,
-                        agent=current_agent_name
-                    )
-                    
-                    # Get the pending change details for the frontend
-                    pending_changes = self.file_manager.get_pending_changes()
-                    change_details = next((c for c in pending_changes if c['id'] == change_id), None)
-
-                    if change_details:
-                        yield {
-                            "type": "file_change",
-                            "change_id": change_id,
-                            "action": action,
-                            "path": path,
-                            "agent": current_agent_name,
-                            "new_content": change_details['new_content'],
-                            "old_content": change_details['old_content']
-                        }
-                        file_edit_proposed = True
+                if cue.startswith("READ:"):
+                    file_read_path = cue.split(":", 1)[1]
+                    break
             
+            if file_read_path:
+                yield {
+                    "type": "agent_status",
+                    "status": f"Reading file: {file_read_path}..."
+                }
+                
+                # Perform file read
+                file_content = await self.file_manager.read_file(file_read_path)
+                
+                if file_content is None:
+                    current_message = f"I tried to read '{file_read_path}' but it doesn't exist or is empty."
+                else:
+                    current_message = f"Content of '{file_read_path}':\n\n```\n{file_content}\n```\n\nI have read the file. Please continue with your analysis."
+                
+                # Continue the loop with the same agent
+                continue
+
             # Check for search cues
             search_query = None
             for cue in cues:
@@ -426,7 +649,7 @@ class AgentOrchestrator:
         if approved:
             if self.last_handoff:
                 current_agent_name = self.last_handoff
-                message = f"User approved the changes. {last_agent_name} has handed off to you. Please proceed."
+                message = f"The user has approved the file changes from {last_agent_name}. You've been called in to help with the next step. Please proceed with your expertise."
             else:
                 current_agent_name = last_agent_name
                 message = "User approved the changes. Great job! Is there anything else?"

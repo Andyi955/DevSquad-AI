@@ -18,7 +18,7 @@ class PendingChange:
     """Represents a pending file change awaiting approval"""
     id: str
     path: str
-    action: str  # "create" or "edit"
+    action: str  # "create", "edit", or "delete"
     new_content: str
     old_content: Optional[str] = None
     agent: Optional[str] = None
@@ -131,19 +131,30 @@ class FileManager:
     async def create_pending_change(
         self, 
         path: str, 
-        content: str, 
-        agent: str = None
+        content: str = None, 
+        agent: str = None,
+        action: str = None
     ) -> str:
         """Create a pending file change (requires approval)"""
         file_path = self._sanitize_path(path)
         
-        # Check if file exists
+        # Check if file exists to determine action and old content
         old_content = None
-        action = "create"
-        if file_path.exists():
-            action = "edit"
-            async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
-                old_content = await f.read()
+        is_existing = file_path.exists() and file_path.is_file()
+
+        # If it's a delete action, we handle it specifically
+        if action == "delete":
+            if is_existing:
+                async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                    old_content = await f.read()
+        else:
+            # For create/edit/write
+            if is_existing:
+                action = "edit"
+                async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                    old_content = await f.read()
+            else:
+                action = "create"
         
         # Generate change ID
         change_id = str(uuid.uuid4())[:8]
@@ -153,7 +164,7 @@ class FileManager:
             id=change_id,
             path=str(file_path.relative_to(self.workspace_path)),
             action=action,
-            new_content=content,
+            new_content=content if content is not None else "",
             old_content=old_content,
             agent=agent
         )
@@ -173,12 +184,17 @@ class FileManager:
         file_path = self._sanitize_path(change.path)
         
         try:
-            # Create parent directories if needed
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Write file
-            async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
-                await f.write(change.new_content)
+            # Write file or delete
+            if change.action == "delete":
+                if file_path.exists():
+                    file_path.unlink()
+            else:
+                # Create parent directories if needed
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Write file
+                async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
+                    await f.write(change.new_content)
             
             # Remove from pending
             del self.pending_changes[change_id]
