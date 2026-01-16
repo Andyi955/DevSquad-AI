@@ -46,6 +46,7 @@ class AgentOrchestrator:
         self.pending_file_changes: List[dict] = []
         self.last_handoff: Optional[str] = None
         self.initialized = False
+        self.mission_status = "IDLE"
     
     async def initialize(self):
         """Initialize all agents"""
@@ -67,18 +68,19 @@ class AgentOrchestrator:
     
     def _select_initial_agent(self, message: str) -> str:
         """Select which agent should respond first based on message content"""
-        message_lower = message.lower()
         
-        # Check for explicit agent mentions
-        if any(word in message_lower for word in ["test", "testing", "coverage", "unit test"]):
+        # Check for explicit agent mentions with word boundaries
+        # Use regex to avoid partial matches (e.g. "latest" matching "test")
+        if re.search(r'\b(tests?|testing|coverage|unit tests?)\b', message, re.IGNORECASE):
             return "Unit Tester"
-        elif any(word in message_lower for word in ["research", "search", "find", "look up", "latest", "docs"]):
+        
+        # Researcher keywords
+        # Note: "find" is very common, might be risky, but kept as per original design
+        if re.search(r'\b(research|search|find|look up|latest|docs?|documentation)\b', message, re.IGNORECASE):
             return "Researcher"
-        elif any(word in message_lower for word in ["implement", "create", "build", "code"]):
-            return "Junior Dev"
-        else:
-            # Default to Senior Dev for reviews and general questions
-            return "Senior Dev"
+        
+        # Default to Junior Dev for implementation and general tasks
+        return "Junior Dev"
     
     def _extract_cues(self, content: str) -> List[str]:
         """Extract cues from agent response"""
@@ -301,6 +303,12 @@ class AgentOrchestrator:
         # Ensure initialized
         if not self.initialized:
             await self.initialize()
+
+        # Handle Mission State
+        if self.mission_status == "IDLE":
+            # Start new mission - Clear previous context to avoid confusion
+            self.conversation = [] 
+            self.mission_status = "IN_PROGRESS"
         
         # Select initial agent
         current_agent_name = initial_agent or self._select_initial_agent(message)
@@ -602,6 +610,7 @@ class AgentOrchestrator:
 
             # Check for done
             if "DONE" in cues:
+                self.mission_status = "IDLE" # Mark mission as complete
                 yield {
                     "type": "agent_done",
                     "agent": current_agent_name,

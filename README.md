@@ -9,13 +9,6 @@ A fun, interactive web application where AI agents (DeepSeek & Gemini) collabora
   <br><i>Main chat interface with real-time streaming and neon theme</i>
 </div>
 
-<br>
-
-<div align="center">
-  <img src="docs/images/dashboard2.png" alt="Research Panel" width="800">
-  <br><i>Automated research cards and collaborative agent output</i>
-</div>
-
 ## ✨ Features
 
 - **🧙 Senior Dev** (Gemini) - Architecture, best practices, code review
@@ -218,5 +211,12 @@ MIT License - feel free to use and modify!
 - [Playwright](https://playwright.dev/) - Browser automation
 - [FastAPI](https://fastapi.tiangolo.com/) - Backend framework
 - [React](https://react.dev/) - Frontend framework
+
+---
+
+## 📞 Contact
+
+[Andrew Ivory](https://www.linkedin.com/in/andrewivory1)
+
 
 ---
