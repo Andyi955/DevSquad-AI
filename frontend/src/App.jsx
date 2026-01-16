@@ -12,7 +12,7 @@ import ApprovalModal from './components/ApprovalModal'
 // Hooks
 import { useWebSocket } from './hooks/useWebSocket'
 
-const API_URL = 'http://localhost:8000'
+const API_URL = 'http://127.0.0.1:8000'
 
 function App() {
   // State
@@ -178,9 +178,17 @@ function App() {
     lastMessage,
     stopAgent,
     disconnect
-  } = useWebSocket(`ws://localhost:8000/ws/agents`, {
+  } = useWebSocket(`ws://127.0.0.1:8000/ws/agents`, {
     onMessage: handleMessage
   })
+
+  // Auto-sync: Poll for file changes every 2 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchFiles()
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [])
 
   // API Functions
   const fetchFiles = async () => {
@@ -203,27 +211,69 @@ function App() {
     }
   }
 
-  const uploadFiles = async (fileList) => {
-    const formData = new FormData()
-    for (const file of fileList) {
-      formData.append('files', file)
+  const uploadFiles = async (fileList, resetWorkspace = false) => {
+    // If resetting, clear workspace first
+    if (resetWorkspace) {
+      // confirm removed as per user request
+      await clearWorkspace(true)
     }
+
+    const formData = new FormData()
+    let count = 0
+    let skipped = 0
+
+    // Files and folders to exclude
+    const EXCLUDED_DIRS = ['node_modules', '.git', 'venv', '.venv', '__pycache__', '.idea', '.vscode', '.DS_Store']
+
+    for (const file of fileList) {
+      // Use webkitRelativePath for folder uploads, preserving folder structure
+      // Normalize path separators to forward slashes
+      let filePath = (file.webkitRelativePath || file.name).replace(/\\/g, '/')
+
+      // Check for excluded directories in the path
+      const pathParts = filePath.split('/')
+      const isExcluded = pathParts.some(part => EXCLUDED_DIRS.includes(part))
+
+      if (isExcluded) {
+        skipped++
+        continue
+      }
+
+      formData.append('files', file)
+      formData.append('paths', filePath)
+      count++
+    }
+
+    if (count === 0) {
+      if (skipped > 0) showToast(`Skipped ${skipped} files (system/ignored folders)`, '⚠️')
+      return
+    }
+
+    showToast(`Uploading ${count} files...`, '📤')
 
     try {
       const res = await fetch(`${API_URL}/upload`, {
         method: 'POST',
         body: formData
       })
+
+      if (!res.ok) {
+        throw new Error(`Upload failed: ${res.statusText}`)
+      }
+
       const data = await res.json()
       fetchFiles()
+      showToast(`Successfully uploaded ${data.count} files`, '✅')
       return data
     } catch (err) {
       console.error('Upload failed:', err)
+      showToast('Upload failed', '❌')
     }
   }
 
   const showToast = useCallback((message, icon = '⚠️') => {
-    const id = Date.now()
+    // Use a more unique ID generation strategy to prevent collisions
+    const id = Date.now() + Math.random().toString(36).substr(2, 9)
     setToasts(prev => [...prev, { id, message, icon }])
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id))
@@ -292,6 +342,7 @@ function App() {
       }
     }
 
+
     // Send to WebSocket
     wsSend({
       type: 'chat',
@@ -303,6 +354,25 @@ function App() {
       }
     })
   }, [isConnected, wsSend, files, selectedFile, attachedFiles])
+
+  // Clear workspace
+  const clearWorkspace = async (skipConfirm = false) => {
+    if (!skipConfirm && !confirm('Are you sure you want to clear all project files? This cannot be undone.')) return
+
+    try {
+      const res = await fetch(`${API_URL}/files`, { method: 'DELETE' })
+      if (res.ok) {
+        setFiles([])
+        setSelectedFile(null)
+        showToast('Projects cleared', '🗑️')
+      } else {
+        throw new Error('Failed to clear projects')
+      }
+    } catch (err) {
+      console.error('Clear failed:', err)
+      showToast('Failed to clear projects', '❌')
+    }
+  }
 
   const approveChange = async (changeId, approved, feedback = null) => {
     try {
@@ -397,6 +467,7 @@ function App() {
         onSelectFile={setSelectedFile}
         onUpload={uploadFiles}
         onAttachFiles={attachFiles}
+        onClearWorkspace={clearWorkspace}
       />
 
       <main className="main-content">

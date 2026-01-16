@@ -1404,3 +1404,77 @@ pre {
     box-shadow: 0 0 0 0 rgba(147, 51, 234, 0);
   }
 }
+/* ============== File Tree ============== */
+.file-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.file-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.15s ease;
+  user-select: none;
+  font-size: 0.85rem;
+}
+
+.file-tree-node:hover {
+  background: var(--glass-bg);
+  color: var(--text-primary);
+}
+
+.file-tree-node.active {
+  background: rgba(147, 51, 234, 0.15);
+  color: var(--neon-purple);
+  border-right: 2px solid var(--neon-purple);
+}
+
+.file-tree-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 0.6rem;
+  transition: transform 0.2s ease;
+  opacity: 0.7;
+}
+
+.file-tree-arrow:hover {
+  opacity: 1;
+  color: var(--neon-purple);
+}
+
+.file-tree-arrow.open {
+  transform: rotate(90deg);
+}
+
+.file-tree-spacer {
+  width: 16px; /* Matches arrow width */
+}
+
+.file-tree-icon {
+  font-size: 1rem;
+  opacity: 0.9;
+}
+
+.file-tree-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-tree-empty {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.85rem;
+}
+

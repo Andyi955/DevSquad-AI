@@ -41,7 +41,7 @@ class FileManager:
     }
     
     def __init__(self):
-        self.workspace_path = Path(os.getenv("WORKSPACE_PATH", "./workspace")).resolve()
+        self.workspace_path = Path("./projects").resolve()
         self.max_file_size = int(os.getenv("MAX_FILE_SIZE_MB", 10)) * 1024 * 1024
         self.pending_changes: Dict[str, PendingChange] = {}
         
@@ -64,7 +64,7 @@ class FileManager:
         """Check if file extension is allowed"""
         return path.suffix.lower() in self.ALLOWED_EXTENSIONS
     
-    async def save_file(self, upload_file) -> dict:
+    async def save_file(self, upload_file, relative_path: str = None) -> dict:
         """Save an uploaded file to workspace"""
         filename = upload_file.filename
         
@@ -80,14 +80,16 @@ class FileManager:
             raise ValueError(f"File too large. Max size: {self.max_file_size // (1024*1024)}MB")
         
         # Save file
-        file_path = self._sanitize_path(filename)
+        # Use relative_path if provided (for folder uploads), otherwise filename
+        target_path = relative_path if relative_path else filename
+        file_path = self._sanitize_path(target_path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         
         async with aiofiles.open(file_path, 'wb') as f:
             await f.write(content)
         
         return {
-            "path": str(file_path.relative_to(self.workspace_path)),
+            "path": str(file_path.relative_to(self.workspace_path)).replace("\\", "/"),
             "size": len(content),
             "status": "uploaded"
         }
@@ -219,3 +221,20 @@ class FileManager:
             "status": "rejected",
             "path": change.path
         }
+    
+    async def clear_workspace(self) -> dict:
+        """Delete all files in workspace"""
+        try:
+            import shutil
+            count = 0
+            for path in self.workspace_path.iterdir():
+                if path.is_file():
+                    path.unlink()
+                    count += 1
+                elif path.is_dir():
+                    shutil.rmtree(path)
+                    count += 1
+            
+            return {"status": "cleared", "deleted": count}
+        except Exception as e:
+            return {"error": str(e), "status": "failed"}

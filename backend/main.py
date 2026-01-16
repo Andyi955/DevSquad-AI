@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional, List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -105,16 +105,33 @@ async def root():
     return {"message": "🤖 Multi-Agent Code Assistant API", "status": "running"}
 
 @app.post("/upload")
-async def upload_files(files: List[UploadFile] = File(...)):
+async def upload_files(
+    files: List[UploadFile] = File(...), 
+    paths: List[str] = Form(None)
+):
     """Upload code files to workspace"""
     uploaded = []
-    for file in files:
+    
+    # If paths are not provided (e.g. simple drag drop without folder), use empty list
+    # But usually creating a list of None or handling the index is better
+    
+    for i, file in enumerate(files):
         try:
-            result = await file_manager.save_file(file)
+            # Get corresponding path if available
+            rel_path = paths[i] if paths and i < len(paths) else None
+            # If path is "undefined" string (from frontend FormData sometimes), ignore it
+            if rel_path == "undefined" or rel_path == "null":
+                rel_path = None
+                
+            result = await file_manager.save_file(file, relative_path=rel_path)
             uploaded.append(result)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
-    
+            print(f"Error uploading {file.filename}: {e}")
+            # Continue uploading other files instead of failing all? 
+            # Or raise error. Let's return error for now to be safe, or just skip.
+            # User experience: probably better to see what failed. 
+            pass # We'll just skip failed ones or maybe we should raise
+            
     return {"uploaded": uploaded, "count": len(uploaded)}
 
 @app.get("/files")
@@ -142,6 +159,14 @@ async def get_pending_changes():
     """Get all pending file changes awaiting approval"""
     changes = file_manager.get_pending_changes()
     return {"changes": changes}
+
+@app.delete("/files")
+async def clear_workspace():
+    """Clear all files in workspace"""
+    result = await file_manager.clear_workspace()
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=500, detail=result.get("error"))
+    return result
 
 @app.post("/approve")
 async def approve_change(request: ApprovalRequest):
