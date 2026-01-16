@@ -1,104 +1,176 @@
+import curses
 import random
-from typing import List, Optional
+import time
+from typing import List, Tuple
 
-def get_random_integers(
-    count: int, 
-    start: int, 
-    end: int, 
-    seed: Optional[int] = None
-) -> List[int]:
-    """
-    Generates a list of random integers within a specified range.
+class SnakeGame:
+    def __init__(self, stdscr):
+        self.stdscr = stdscr
+        self.height, self.width = stdscr.getmaxyx()
+        self.snake = [(self.height // 2, self.width // 4)]
+        self.food = self.generate_food()
+        self.direction = curses.KEY_RIGHT
+        self.score = 0
+        self.game_over = False
+        
+        # Initialize curses settings
+        curses.curs_set(0)
+        self.stdscr.nodelay(1)
+        self.stdscr.timeout(100)
+        
+        # Define color pairs
+        curses.start_color()
+        curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)
+        curses.init_pair(2, curses.COLOR_RED, curses.COLOR_BLACK)
+        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
     
-    Args:
-        count: The number of random integers to generate.
-        start: The inclusive lower bound of the range.
-        end: The inclusive upper bound of the range.
-        seed: Optional seed for reproducible random generation.
-        
-    Returns:
-        A list of random integers.
-        
-    Raises:
-        ValueError: If start > end (invalid range) or count < 0.
-    """
-    if start > end:
-        raise ValueError(f"Invalid range: start ({start}) cannot be greater than end ({end})")
+    def generate_food(self) -> Tuple[int, int]:
+        """Generate food at a random position not occupied by the snake."""
+        while True:
+            food = (
+                random.randint(1, self.height - 2),
+                random.randint(1, self.width - 2)
+            )
+            if food not in self.snake:
+                return food
     
-    if count < 0:
-        raise ValueError(f"Invalid count: {count} must be non-negative")
+    def draw_border(self):
+        """Draw the game border."""
+        self.stdscr.attron(curses.color_pair(3))
+        self.stdscr.border()
+        self.stdscr.attroff(curses.color_pair(3))
     
-    if seed is not None:
-        random.seed(seed)
+    def draw_snake(self):
+        """Draw the snake on the screen."""
+        self.stdscr.attron(curses.color_pair(1))
+        for y, x in self.snake:
+            if 0 < y < self.height - 1 and 0 < x < self.width - 1:
+                self.stdscr.addch(y, x, '█')
+        self.stdscr.attroff(curses.color_pair(1))
     
-    return [random.randint(start, end) for _ in range(count)]
-
-def get_user_input(prompt: str) -> Optional[int]:
-    """Helper function to safely get integer input from user."""
-    try:
-        value = input(prompt).strip()
-        if not value:
-            return None
-        return int(value)
-    except ValueError:
-        raise ValueError(f"Invalid input: '{value}' is not a valid integer")
-
-def display_statistics(numbers: List[int]) -> None:
-    """Display statistics about the generated numbers."""
-    if not numbers:
-        return
+    def draw_food(self):
+        """Draw the food on the screen."""
+        self.stdscr.attron(curses.color_pair(2))
+        y, x = self.food
+        if 0 < y < self.height - 1 and 0 < x < self.width - 1:
+            self.stdscr.addch(y, x, '●')
+        self.stdscr.attroff(curses.color_pair(2))
     
-    print(f"\n📊 Statistics:")
-    print(f"   Count: {len(numbers)}")
-    print(f"   Min: {min(numbers)}")
-    print(f"   Max: {max(numbers)}")
-    print(f"   Average: {sum(numbers)/len(numbers):.2f}")
-    print(f"   Sum: {sum(numbers)}")
-
-def main() -> None:
-    """Main entry point for the Random Number Generator utility."""
-    print("🎯 Welcome to the Random Number Generator")
-    print("=" * 40)
+    def draw_score(self):
+        """Display the current score."""
+        score_text = f"Score: {self.score}"
+        self.stdscr.addstr(0, 2, score_text)
     
-    try:
-        # Input gathering with better prompts
-        low = get_user_input("Enter the lower bound (e.g., 1): ")
-        if low is None:
-            print("\n⚠️ No lower bound provided. Using default: 1")
-            low = 1
+    def draw_instructions(self):
+        """Display game instructions."""
+        instructions = "Use arrow keys to move | Q to quit"
+        if self.width > len(instructions) + 4:
+            self.stdscr.addstr(self.height - 1, 2, instructions)
+    
+    def draw_game_over(self):
+        """Display game over screen."""
+        game_over_text = "GAME OVER!"
+        restart_text = "Press R to restart or Q to quit"
         
-        high = get_user_input("Enter the upper bound (e.g., 100): ")
-        if high is None:
-            print(f"\n⚠️ No upper bound provided. Using default: {low + 99}")
-            high = low + 99
+        y = self.height // 2 - 1
+        x = self.width // 2 - len(game_over_text) // 2
         
-        amount_input = get_user_input("How many numbers would you like to generate? (Press Enter for 10): ")
-        amount = amount_input if amount_input is not None else 10
+        self.stdscr.attron(curses.A_BOLD)
+        self.stdscr.addstr(y, x, game_over_text)
+        self.stdscr.addstr(y + 1, self.width // 2 - len(restart_text) // 2, restart_text)
+        self.stdscr.attroff(curses.A_BOLD)
+    
+    def move_snake(self):
+        """Move the snake in the current direction."""
+        head_y, head_x = self.snake[0]
         
-        # Safety check for very large counts
-        if amount > 10000:
-            confirm = input(f"⚠️ You're about to generate {amount:,} numbers. Continue? (y/n): ")
-            if confirm.lower() != 'y':
-                print("Operation cancelled.")
-                return
-        
-        # Core logic
-        results = get_random_integers(amount, low, high)
-        
-        # Output
-        if not results:
-            print("\n✅ No numbers were requested (count was 0).")
+        # Calculate new head position based on direction
+        if self.direction == curses.KEY_UP:
+            new_head = (head_y - 1, head_x)
+        elif self.direction == curses.KEY_DOWN:
+            new_head = (head_y + 1, head_x)
+        elif self.direction == curses.KEY_LEFT:
+            new_head = (head_y, head_x - 1)
+        elif self.direction == curses.KEY_RIGHT:
+            new_head = (head_y, head_x + 1)
         else:
-            print(f"\n✅ Successfully generated {len(results)} number(s):")
-            print(f"👉 {results}")
-            display_statistics(results)
+            return
         
-    except ValueError as e:
-        print(f"\n❌ Error: {e}")
-    except KeyboardInterrupt:
-        print("\n\n👋 Operation cancelled by user.")
-    except Exception as e:
-        print(f"\n⚠️ An unexpected error occurred: {e}")
+        # Check for collision with border
+        if (new_head[0] <= 0 or new_head[0] >= self.height - 1 or
+            new_head[1] <= 0 or new_head[1] >= self.width - 1):
+            self.game_over = True
+            return
+        
+        # Check for collision with self
+        if new_head in self.snake:
+            self.game_over = True
+            return
+        
+        # Move snake
+        self.snake.insert(0, new_head)
+        
+        # Check if food is eaten
+        if new_head == self.food:
+            self.score += 10
+            self.food = self.generate_food()
+        else:
+            # Remove tail if no food eaten
+            self.snake.pop()
+    
+    def handle_input(self):
+        """Handle keyboard input."""
+        key = self.stdscr.getch()
+        
+        if key == ord('q') or key == ord('Q'):
+            return False  # Signal to quit
+        
+        if self.game_over and (key == ord('r') or key == ord('R')):
+            # Restart game
+            self.__init__(self.stdscr)
+            return True
+        
+        # Change direction (prevent 180-degree turns)
+        if (key == curses.KEY_UP and self.direction != curses.KEY_DOWN or
+            key == curses.KEY_DOWN and self.direction != curses.KEY_UP or
+            key == curses.KEY_LEFT and self.direction != curses.KEY_RIGHT or
+            key == curses.KEY_RIGHT and self.direction != curses.KEY_LEFT):
+            self.direction = key
+        
+        return True
+    
+    def run(self):
+        """Main game loop."""
+        while True:
+            self.stdscr.clear()
+            
+            if not self.game_over:
+                self.move_snake()
+            
+            self.draw_border()
+            self.draw_snake()
+            self.draw_food()
+            self.draw_score()
+            self.draw_instructions()
+            
+            if self.game_over:
+                self.draw_game_over()
+            
+            self.stdscr.refresh()
+            
+            # Handle input
+            if not self.handle_input():
+                break
+            
+            # Control game speed based on score
+            if not self.game_over:
+                speed = max(50, 150 - (self.score // 10))
+                self.stdscr.timeout(speed)
+
+def main(stdscr):
+    """Main function for curses application."""
+    game = SnakeGame(stdscr)
+    game.run()
 
 if __name__ == "__main__":
-    main()
+    curses.wrapper(main)

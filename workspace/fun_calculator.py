@@ -1,3 +1,43 @@
+def add(num1: float, num2: float) -> float:
+    """Add two numbers."""
+    return num1 + num2
+
+def subtract(num1: float, num2: float) -> float:
+    """Subtract num2 from num1."""
+    return num1 - num2
+
+def multiply(num1: float, num2: float) -> float:
+    """Multiply two numbers."""
+    return num1 * num2
+
+def divide(num1: float, num2: float) -> float:
+    """Divide num1 by num2."""
+    if num2 == 0:
+        raise ValueError("Cannot divide by zero")
+    return num1 / num2
+
+def power(num1: float, num2: float) -> float:
+    """Raise num1 to the power of num2."""
+    return num1 ** num2
+
+def happiness_meter(name: str, level: float) -> str:
+    """Calculate happiness message based on level."""
+    if not name:
+        name = "Friend"
+    
+    if level < 1:
+        return f"😢 Oh no! {name} needs a hug!"
+    elif level <= 3:
+        return f"😔 {name} could use some cheering up!"
+    elif level <= 6:
+        return f"😊 {name} is doing okay!"
+    elif level <= 8:
+        return f"😄 {name} is pretty happy!"
+    elif level <= 10:
+        return f"🎉 {name} is SUPER HAPPY! YAY!"
+    else:
+        return f"🤯 {name} is off the charts happy! WOW!"
+
 def fun_calculator() -> None:
     """A unique and fun calculator with personality!"""
     
@@ -26,25 +66,10 @@ def fun_calculator() -> None:
             if choice == "6":
                 # Special fun operation!
                 name = input("What's your name? ").strip()
-                if not name:
-                    name = "Friend"
-                
-                happy_level = input(f"On a scale of 1-10, how happy is {name} today? ")
+                happy_level = input(f"On a scale of 1-10, how happy is {name if name else 'Friend'} today? ")
                 try:
                     level = float(happy_level)
-                    if level < 1:
-                        result = f"😢 Oh no! {name} needs a hug!"
-                    elif level <= 3:
-                        result = f"😔 {name} could use some cheering up!"
-                    elif level <= 6:
-                        result = f"😊 {name} is doing okay!"
-                    elif level <= 8:
-                        result = f"😄 {name} is pretty happy!"
-                    elif level <= 10:
-                        result = f"🎉 {name} is SUPER HAPPY! YAY!"
-                    else:
-                        result = f"🤯 {name} is off the charts happy! WOW!"
-                    
+                    result = happiness_meter(name, level)
                     print(f"\n📈 Happiness Analysis: {result}")
                 except ValueError:
                     print("❌ That doesn't look like a number! Let's try again.")
@@ -63,33 +88,35 @@ def fun_calculator() -> None:
                 print("❌ Oops! Those should be numbers!")
                 continue
             
-            # Perform the calculation
+            # Perform the calculation using the pure functions
             result = None
             operation = ""
+            emoji = ""
             
-            if choice == "1":
-                result = num1 + num2
-                operation = f"{num1} + {num2}"
-                emoji = "➕"
-            elif choice == "2":
-                result = num1 - num2
-                operation = f"{num1} - {num2}"
-                emoji = "➖"
-            elif choice == "3":
-                result = num1 * num2
-                operation = f"{num1} × {num2}"
-                emoji = "✖️"
-            elif choice == "4":
-                if num2 == 0:
-                    print("❌ Whoa there! Dividing by zero creates a black hole! 🕳️")
-                    continue
-                result = num1 / num2
-                operation = f"{num1} ÷ {num2}"
-                emoji = "➗"
-            elif choice == "5":
-                result = num1 ** num2
-                operation = f"{num1} to the power of {num2}"
-                emoji = "⚡"
+            try:
+                if choice == "1":
+                    result = add(num1, num2)
+                    operation = f"{num1} + {num2}"
+                    emoji = "➕"
+                elif choice == "2":
+                    result = subtract(num1, num2)
+                    operation = f"{num1} - {num2}"
+                    emoji = "➖"
+                elif choice == "3":
+                    result = multiply(num1, num2)
+                    operation = f"{num1} × {num2}"
+                    emoji = "✖️"
+                elif choice == "4":
+                    result = divide(num1, num2)
+                    operation = f"{num1} ÷ {num2}"
+                    emoji = "➗"
+                elif choice == "5":
+                    result = power(num1, num2)
+                    operation = f"{num1} to the power of {num2}"
+                    emoji = "⚡"
+            except ValueError as e:
+                print(f"❌ {e}")
+                continue
             
             # Display the result with flair!
             print(f"\n{emoji} CALCULATION RESULT {emoji}")
