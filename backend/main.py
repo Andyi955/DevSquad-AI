@@ -379,16 +379,17 @@ async def websocket_agents(websocket: WebSocket):
                 # Get signal from orchestrator
                 signal = await orchestrator.handle_approval_signal(approved, feedback)
                 
-                # Start new streaming task to resume
-                if current_task and not current_task.done():
-                    current_task.cancel()
-                
-                context = data.get("context", {})
-                current_task = asyncio.create_task(run_agent_stream(
-                    message=signal["message"], 
-                    context=context,
-                    initial_agent=signal["next_agent"]
-                ))
+                # Start new streaming task to resume ONLY if there's a next agent/message
+                if signal.get("next_agent"):
+                    if current_task and not current_task.done():
+                        current_task.cancel()
+                    
+                    context = data.get("context", {})
+                    current_task = asyncio.create_task(run_agent_stream(
+                        message=signal["message"], 
+                        context=context,
+                        initial_agent=signal["next_agent"]
+                    ))
 
             elif data.get("type") == "stop":
                 if current_task and not current_task.done():
