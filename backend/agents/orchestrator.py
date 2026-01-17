@@ -656,7 +656,19 @@ class AgentOrchestrator:
         last_msg = self.conversation[-1] if self.conversation else None
         last_agent_name = last_msg.agent if last_msg else "Senior Dev"
         
+        # Check if they said they were done
+        was_done = last_msg and "DONE" in last_msg.cues
+        
         if approved:
+            # If they were done and it's approved, we truly are finished
+            if was_done:
+                self.mission_status = "IDLE"
+                self.last_handoff = None
+                return {
+                    "next_agent": None,
+                    "message": None
+                }
+                
             if self.last_handoff:
                 current_agent_name = self.last_handoff
                 message = f"The user has approved the file changes from {last_agent_name}. You've been called in to help with the next step. Please proceed with your expertise."

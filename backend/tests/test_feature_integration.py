@@ -166,3 +166,37 @@ def test_orchestrator_scrubbing():
     assert "[→SENIOR]" not in clean_handoff
     assert "@Senior Dev" in clean_handoff
 
+@pytest.mark.asyncio
+async def test_orchestrator_duplication_prevention():
+    """Verify that approval doesn't trigger extra responses after DONE cue"""
+    from agents.orchestrator import AgentOrchestrator, Message
+    orchestrator = AgentOrchestrator()
+    
+    # Simulate a finished mission with a DONE cue
+    orchestrator.conversation.append(Message(
+        agent="Junior Dev",
+        content="Task finished. [DONE]",
+        cues=["DONE"]
+    ))
+    orchestrator.mission_status = "IN_PROGRESS"
+    
+    # Trigger approval - it should NOT return a next agent
+    signal = await orchestrator.handle_approval_signal(approved=True)
+    
+    assert signal["next_agent"] is None
+    assert signal["message"] is None
+    assert orchestrator.mission_status == "IDLE"
+    
+    # Simulate a mission that is NOT finished (handoff pending)
+    orchestrator.conversation.append(Message(
+        agent="Junior Dev",
+        content="I need a review [→SENIOR]",
+        cues=["SENIOR"]
+    ))
+    orchestrator.last_handoff = "Senior Dev"
+    
+    # Trigger approval - it SHOULD return Senior Dev
+    signal = await orchestrator.handle_approval_signal(approved=True)
+    assert signal["next_agent"] == "Senior Dev"
+    assert "approved" in signal["message"].lower()
+
