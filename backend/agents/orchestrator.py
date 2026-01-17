@@ -180,7 +180,7 @@ class AgentOrchestrator:
         Clean up technical cues and placeholders for user-friendly display.
         """
         # 0. Flatten short code blocks that should have been inline
-        # Matches: ```language\nword\n``` with optional whitespace/newlines
+        # Matches: ```language\nword\n``` or just ```word```
         # This fixes agents accidentally using block code for single words/filenames
         def flatten_code_blocks(match):
             content = match.group(1).strip()
@@ -189,7 +189,8 @@ class AgentOrchestrator:
                 return f" `{content}` "
             return match.group(0) # Keep as is if it's "real" code
 
-        message = re.sub(r'```(?:\w+)?\s*(.*?)\s*```', flatten_code_blocks, message, flags=re.DOTALL)
+        # Updated regex: If there's content after ```, it must be followed by a newline to be a language tag
+        message = re.sub(r'```(?:\w+\n)?\s*(.*?)\s*```', flatten_code_blocks, message, flags=re.DOTALL)
 
         # 1. Remove file edit/create/delete placeholders (internal ones)
         message = re.sub(r'\[File (Edit|Create|Delete): [^\]]+\]', '', message)
@@ -348,18 +349,18 @@ class AgentOrchestrator:
                     continue
                     
                 if event["type"] == "thought":
-                    full_thoughts += event["content"]
+                    full_thoughts += event.get("content", "")
                     yield {
                         "type": "thought",
                         "agent": current_agent_name,
-                        "content": event["content"]
+                        "content": event.get("content", "")
                     }
                 elif event["type"] == "message":
-                    full_response += event["content"]
+                    full_response += event.get("content", "")
                     
                     # Heuristic: if we just saw an EDIT/CREATE cue, and this chunk starts a code block,
                     # we start suppressing it from the chat stream.
-                    if (last_was_cue or "[EDIT_FILE:" in full_response or "[CREATE_FILE:" in full_response) and "```" in event["content"]:
+                    if (last_was_cue or "[EDIT_FILE:" in full_response or "[CREATE_FILE:" in full_response) and "```" in event.get("content", ""):
                         suppress_message = True
                         yield {
                             "type": "agent_status",
@@ -370,10 +371,10 @@ class AgentOrchestrator:
                         yield {
                             "type": "message",
                             "agent": current_agent_name,
-                            "content": event["content"]
+                            "content": event.get("content", "")
                         }
                     
-                    if "```" in event["content"] and suppress_message and full_response.count("```") % 2 == 0:
+                    if "```" in event.get("content", "") and suppress_message and full_response.count("```") % 2 == 0:
                         # We closed the code block
                         suppress_message = False
 
@@ -381,10 +382,10 @@ class AgentOrchestrator:
                     yield {
                         "type": "error",
                         "agent": current_agent_name,
-                        "content": event["content"]
+                        "content": event.get("content", "Unknown error")
                     }
                 elif event["type"] == "cue":
-                    if event["content"] in ["EDIT_FILE", "CREATE_FILE", "DELETE_FILE"]:
+                    if event.get("content", "") in ["EDIT_FILE", "CREATE_FILE", "DELETE_FILE"]:
                         last_was_cue = True
             
             # Track usage

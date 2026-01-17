@@ -86,10 +86,7 @@ function App() {
       case 'handoff':
         // Add handoff indicator
         setMessages(prev => {
-          const updated = [...prev]
-          if (updated.length > 0) {
-            updated[updated.length - 1].complete = true
-          }
+          const updated = prev.map(m => ({ ...m, complete: true }))
           updated.push({
             id: Date.now(),
             type: 'handoff',
@@ -141,9 +138,15 @@ function App() {
           setIsStopped(true)
         }
         setMessages(prev => {
-          const updated = [...prev]
-          if (updated.length > 0) {
-            updated[updated.length - 1].complete = true
+          const updated = prev.map(m => ({ ...m, complete: true }))
+          // Add mission completion message if it's the final end of sequence
+          if (data.type === 'complete') {
+            updated.push({
+              id: Date.now(),
+              type: 'mission_complete',
+              agent: 'System',
+              timestamp: new Date()
+            })
           }
           return updated
         })
@@ -194,11 +197,9 @@ function App() {
 
   // API Functions
   const fetchFileTree = async () => {
-    console.log('🔄 [App] Fetching file tree...');
     try {
       const res = await fetch(`${API_URL}/files`)
       const data = await res.json()
-      console.log('🌳 [App] Received file tree:', data.files?.length, 'items');
       setFileTree(data.files || [])
       if (data.workspace) {
         setWorkspacePath(data.workspace)
@@ -419,21 +420,25 @@ function App() {
   const sendChatMessage = useCallback(async (message) => {
     if (!isConnected || !message.trim()) return
 
-    // Add user message
-    setMessages(prev => [...prev, {
-      id: Date.now(),
-      agent: 'User',
-      content: message,
-      isUser: true,
-      timestamp: new Date(),
-      complete: true
-    }])
+    // Add user message and mark ALL previous as complete
+    setMessages(prev => [
+      ...prev.map(m => ({ ...m, complete: true })),
+      {
+        id: Date.now(),
+        agent: 'User',
+        content: message,
+        isUser: true,
+        timestamp: new Date(),
+        complete: true
+      }
+    ])
     setIsStopped(false)
 
     let currentFileValid = null
     if (selectedFile) {
       try {
-        const res = await fetch(`${API_URL}/files/${selectedFile.path}`)
+        const encodedPath = selectedFile.path.replace(/\//g, '%2F')
+        const res = await fetch(`${API_URL}/files/${encodedPath}`)
         if (res.ok) {
           const data = await res.json()
           currentFileValid = {

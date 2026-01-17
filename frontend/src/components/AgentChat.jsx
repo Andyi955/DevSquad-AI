@@ -57,16 +57,19 @@ function AgentChat({
     // Handle agent status updates from messages
     useEffect(() => {
         const lastMsg = messages[messages.length - 1];
+
         if (lastMsg && lastMsg.type === 'agent_status') {
             setAgentStatus(lastMsg.status);
-        } else if (lastMsg && (lastMsg.type === 'agent_done' || lastMsg.complete)) {
-            // Keep status for a moment after completion so it's readable
+        }
+
+        // If typing stopped or message is complete, clear status after a delay
+        if (!isTyping || (lastMsg && (lastMsg.type === 'agent_done' || lastMsg.complete))) {
             const timer = setTimeout(() => {
                 setAgentStatus('');
-            }, 1000);
+            }, 1500);
             return () => clearTimeout(timer);
         }
-    }, [messages]);
+    }, [messages, isTyping]);
 
     // Auto-scroll to bottom
     useEffect(() => {
@@ -142,6 +145,17 @@ function AgentChat({
                     }}>
                         Passing to {msg.to}
                     </span>
+                </div>
+            )
+        }
+
+        if (msg.type === 'mission_complete') {
+            return (
+                <div key={msg.id} className="mission-complete-card">
+                    <div className="mission-complete-badge">
+                        <span className="check">✅</span>
+                        <span className="text">MISSION ACCOMPLISHED</span>
+                    </div>
                 </div>
             )
         }
