@@ -355,6 +355,7 @@ function Sidebar({ files, selectedFile, onSelectFile, onUpload, onAttachFiles, o
                             onUploadToPath={onUploadToPath}
                             onMoveItem={onMoveItem}
                             onRenameItem={onRenameItem}
+                            onAttachFiles={onAttachFiles}
                             creatingItem={creatingItem}
                             onCreateSubmit={handleCreateSubmit}
                             onCreateCancel={handleCreateCancel}

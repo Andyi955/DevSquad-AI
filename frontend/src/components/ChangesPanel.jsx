@@ -92,8 +92,31 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
                 overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
-                opacity: isApproved ? 0.8 : 1
+                opacity: isApproved ? 0.8 : 1,
+                position: 'relative' // Added for absolute positioning of badge
             }}>
+                {isApproved && (
+                    <span style={{
+                        position: 'absolute',
+                        top: '4px',
+                        right: '4px',
+                        fontSize: '0.6rem',
+                        color: '#4ade80',
+                        fontWeight: 'bold',
+                        background: 'rgba(34, 197, 94, 0.15)',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        border: '1px solid rgba(34, 197, 94, 0.2)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                        zIndex: 10,
+                        pointerEvents: 'none',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                    }}>
+                        <span>✅</span> APPROVED
+                    </span>
+                )}
                 <div className="change-header" style={{
                     padding: '12px',
                     background: isApproved ? 'rgba(34, 197, 94, 0.1)' : 'rgba(255,255,255,0.03)',
@@ -102,21 +125,33 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
                     justifyContent: 'space-between',
                     cursor: 'pointer'
                 }} onClick={() => toggleCollapse(changeId)}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '1.2rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                        <span style={{ fontSize: '1.2rem', flexShrink: 0 }}>
                             {change.action === 'create' ? '🆕' : change.action === 'delete' ? '🗑️' : '📝'}
                         </span>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+                            <span style={{
+                                fontWeight: 600,
+                                fontSize: '0.875rem',
+                                color: 'var(--text-primary)',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                            }} title={change.path.split('/').pop()}>
                                 {change.path.split('/').pop()}
                             </span>
-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            <span style={{
+                                fontSize: '0.75rem',
+                                color: 'var(--text-muted)',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                            }} title={change.path}>
                                 {change.path}
                             </span>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {isApproved && <span style={{ fontSize: '0.7rem', color: '#4ade80', fontWeight: 'bold' }}>APPROVED</span>}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }}>
                         <span style={{ transform: collapsed[changeId] ? 'rotate(-90deg)' : 'none', transition: 'transform 0.2s' }}>
                             ▼
                         </span>

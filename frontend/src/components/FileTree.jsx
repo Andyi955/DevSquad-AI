@@ -87,7 +87,7 @@ const InlineInput = ({ type, onSubmit, onCancel, initialValue = '', noPadding = 
     )
 }
 
-const FileTreeNode = React.memo(({ node, level = 0, onSelect, selectedPath, onUploadToPath, onMoveItem, onRenameItem, creatingItem, onCreateSubmit, onCreateCancel }) => {
+const FileTreeNode = React.memo(({ node, level = 0, onSelect, selectedPath, onUploadToPath, onMoveItem, onRenameItem, onAttachFiles, creatingItem, onCreateSubmit, onCreateCancel }) => {
     const [isOpen, setIsOpen] = useState(false)
     const [isDragOver, setIsDragOver] = useState(false)
     const [isRenaming, setIsRenaming] = useState(false)
@@ -128,6 +128,12 @@ const FileTreeNode = React.memo(({ node, level = 0, onSelect, selectedPath, onUp
         // Set the item path for internal moves
         e.dataTransfer.setData("itemPath", node.path)
         e.dataTransfer.setData("itemType", node.type)
+
+        // Also add JSON data for the AgentChat drop zone (attaching files)
+        if (node.type === 'file') {
+            e.dataTransfer.setData("application/json", JSON.stringify(node))
+        }
+
         e.dataTransfer.effectAllowed = "move"
     }
 
@@ -231,13 +237,15 @@ const FileTreeNode = React.memo(({ node, level = 0, onSelect, selectedPath, onUp
                         <span className="file-tree-name">{node.name}</span>
                     )}
                     {!isRenaming && (
-                        <button
-                            className="rename-btn"
-                            onClick={handleRenameClick}
-                            title="Rename"
-                        >
-                            ✏️
-                        </button>
+                        <div className="node-actions">
+                            <button
+                                className="rename-btn"
+                                onClick={handleRenameClick}
+                                title="Rename"
+                            >
+                                ✏️
+                            </button>
+                        </div>
                     )}
                 </div>
 
@@ -267,6 +275,7 @@ const FileTreeNode = React.memo(({ node, level = 0, onSelect, selectedPath, onUp
                                     onUploadToPath={onUploadToPath}
                                     onMoveItem={onMoveItem}
                                     onRenameItem={onRenameItem}
+                                    onAttachFiles={onAttachFiles}
                                     creatingItem={creatingItem}
                                     onCreateSubmit={onCreateSubmit}
                                     onCreateCancel={onCreateCancel}
@@ -302,19 +311,31 @@ const FileTreeNode = React.memo(({ node, level = 0, onSelect, selectedPath, onUp
                 <span className="file-tree-name">{node.name}</span>
             )}
             {!isRenaming && (
-                <button
-                    className="rename-btn"
-                    onClick={handleRenameClick}
-                    title="Rename"
-                >
-                    ✏️
-                </button>
+                <div className="node-actions">
+                    <button
+                        className="attach-btn"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onAttachFiles && onAttachFiles(node)
+                        }}
+                        title="Add to Chat"
+                    >
+                        ➕
+                    </button>
+                    <button
+                        className="rename-btn"
+                        onClick={handleRenameClick}
+                        title="Rename"
+                    >
+                        ✏️
+                    </button>
+                </div>
             )}
         </div>
     )
 })
 
-const FileTree = ({ files, onSelect, selectedFile, onUploadToPath, onMoveItem, onRenameItem, creatingItem, onCreateSubmit, onCreateCancel }) => {
+const FileTree = ({ files, onSelect, selectedFile, onUploadToPath, onMoveItem, onRenameItem, onAttachFiles, creatingItem, onCreateSubmit, onCreateCancel }) => {
     // Convert flat list to tree structure
     const tree = useMemo(() => {
         const root = []
@@ -414,6 +435,7 @@ const FileTree = ({ files, onSelect, selectedFile, onUploadToPath, onMoveItem, o
                     onUploadToPath={onUploadToPath}
                     onMoveItem={onMoveItem}
                     onRenameItem={onRenameItem}
+                    onAttachFiles={onAttachFiles}
                     creatingItem={creatingItem}
                     onCreateSubmit={onCreateSubmit}
                     onCreateCancel={onCreateCancel}
