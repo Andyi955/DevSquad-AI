@@ -23,8 +23,9 @@ A fun, interactive web application where AI agents (DeepSeek & Gemini) collabora
 - 🎬 **Real-time streaming** - Watch agents think and respond live
 - 💭 **Thought bubbles** - See agent reasoning (collapsible)
 - ✏️ **File management** - Agents can create, edit, or delete files with your approval
-- ⚡ **Review Changes Panel** - Dedicated side-panel to review and approve/reject multiple changes
+- ⚡ **Safe Switch Management** - Dynamically switch between project folders without data loss
 - 🌈 **Color-coded Diffs** - Visual representation of code additions and removals
+- 🔍 **Context-Aware Sidebar** - Rename, move, and organize files with a sleek tree view
 - 🌐 **Web research** - Agents browse docs, Stack Overflow, GitHub
 - 🎨 **Neon dark theme** - Beautiful UI with fun animations
 - 📊 **Usage tracking** - Monitor API usage and costs
@@ -111,7 +112,7 @@ DevSquad-AI/
 │   │   ├── components/      # React components
 │   │   └── index.css        # Neon theme
 │   └── package.json
-├── workspace/               # Your uploaded files (sandboxed)
+├── projects/                # Your dynamically managed project folders
 ├── .env                     # Your API keys
 └── README.md
 ```
@@ -135,20 +136,21 @@ Agents communicate via special cues in their responses:
 | `[→JUNIOR]` | Pass to Junior Dev |
 | `[→TESTER]` | Pass to Unit Tester |
 | `[→RESEARCH]` | Request web research |
-| `[FILE_SEARCH:pattern]` | Search for files in the workspace |
+| `[SEARCH: "query"]` | Perform targeted web search (Researcher only) |
+| `[FILE_SEARCH:pattern]` | Search for files in the active project |
 | `[READ_FILE:path]` | Read file content in background (stays out of chat) |
 | `[EDIT_FILE:path]` | Propose file edit (requires approval) |
 | `[CREATE_FILE:path]` | Create a new file (requires approval) |
 | `[DELETE_FILE:path]` | Propose file deletion (requires approval) |
-| `[DONE]` | Task complete |
+| `[DONE]` | Mission accomplished |
 
 ### File Safety
 - ✅ Create new files
 - ✅ Edit existing files
 - ✅ Delete files (requires explicit approval)
 - 🔒 All changes require user approval
-- 📁 Only operates in `/workspace` folder
-- 🧹 **Code Suppression**: Raw code blocks are hidden from chat and moved to the Review Panel
+- 📁 **Dynamic Sandboxing** - Prevents access outside the active project folder
+- 🧹 **Intelligent Scrubbing** - Raw technical tags and oversized code blocks are moved to the Review Panel for readability
 
 ---
 
@@ -163,7 +165,6 @@ DEEPSEEK_API_KEY=your_key
 
 # Optional
 MAX_FILE_SIZE_MB=10          # Max upload size
-WORKSPACE_PATH=./workspace   # File sandbox
 ENABLE_BROWSER_AGENT=true    # Enable web browsing
 USAGE_LIMIT_PER_DAY=1000     # API call limit
 ```
@@ -174,12 +175,16 @@ USAGE_LIMIT_PER_DAY=1000     # API call limit
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/upload` | POST | Upload code files |
+| `/upload` | POST | Upload files/folders to project |
 | `/chat` | POST | Send message to agents |
 | `/ws/agents` | WebSocket | Real-time agent stream |
-| `/files` | GET | List workspace files |
-| `/files/{path}` | GET/PUT | Read/write file |
-| `/approve` | POST | Approve file changes |
+| `/files` | GET | List active project files |
+| `/create-folder`| POST | Create a new directory |
+| `/move` | POST | Move files/folders (Drag & Drop) |
+| `/rename` | POST | Rename files/folders inline |
+| `/select-folder`| GET | Open native folder picker |
+| `/set-workspace`| POST | Switch active project |
+| `/approve` | POST | Approve/Reject file changes |
 | `/research` | POST | Web research query |
 | `/usage` | GET | API usage stats |
 
