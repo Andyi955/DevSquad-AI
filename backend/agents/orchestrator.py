@@ -552,7 +552,7 @@ class AgentOrchestrator:
                 }
 
                 # Perform file search
-                matching_files = await self.file_manager.list_files(file_search_pattern)
+                matching_files = await self.file_manager.get_directory(file_search_pattern)
                 file_list_str = "\n".join([f"- {f['path']} ({f['size']} bytes)" for f in matching_files])
                 
                 if not matching_files:

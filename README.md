@@ -7,6 +7,9 @@ A fun, interactive web application where AI agents (DeepSeek & Gemini) collabora
 <div align="center">
   <img src="docs/images/dashboard1.png" alt="Main Interface" width="800">
   <br><i>Main chat interface with real-time streaming and neon theme</i>
+  <br><br>
+  <img src="docs/images/dashboard2.png" alt="File Management" width="800">
+  <br><i>Advanced workspace management and Safe Switch project switching</i>
 </div>
 
 ## ✨ Features

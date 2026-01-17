@@ -123,6 +123,7 @@ async def upload_files(
             if rel_path == "undefined" or rel_path == "null":
                 rel_path = None
                 
+            print(f"📤 [Backend] Saving uploaded file to: {file_manager.workspace_path or 'ROOT'} / {rel_path or file.filename}")
             result = await file_manager.save_file(file, relative_path=rel_path)
             uploaded.append(result)
         except Exception as e:
@@ -134,11 +135,129 @@ async def upload_files(
             
     return {"uploaded": uploaded, "count": len(uploaded)}
 
+@app.post("/create-file")
+async def create_file(body: FileContent):
+    """Create a new empty file or file with content"""
+    try:
+        result = await file_manager.save_file_from_content(body.path, body.content or "")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/create-folder")
+async def create_folder(path: str = Form(...)):
+    """Create a new folder"""
+    try:
+        result = await file_manager.create_folder(path)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+class MoveRequest(BaseModel):
+    source_path: str
+    destination_folder: str
+
+@app.post("/move")
+async def move_item(body: MoveRequest):
+    """Move a file or folder to a new location"""
+    try:
+        result = await file_manager.move_item(body.source_path, body.destination_folder)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+class RenameRequest(BaseModel):
+    path: str
+    new_name: str
+
+@app.post("/rename")
+async def rename_item(body: RenameRequest):
+    """Rename a file or folder"""
+    try:
+        result = await file_manager.rename_item(body.path, body.new_name)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @app.get("/files")
 async def list_files():
     """List all files in workspace"""
-    files = await file_manager.list_files()
-    return {"files": files}
+    files = await file_manager.get_directory()
+    workspace = str(file_manager.workspace_path) if file_manager.workspace_path else None
+    return {"files": files, "workspace": workspace}
+
+@app.get("/select-folder")
+async def select_folder():
+    """Open native folder picker dialog and return selected path"""
+    import threading
+    result = {"path": None, "error": None}
+    
+    def run_dialog():
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            
+            # Create and hide the root window
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes('-topmost', True)  # Bring dialog to front
+            
+            # Open folder picker
+            folder_path = filedialog.askdirectory(
+                title="Select Project Folder",
+                mustexist=True
+            )
+            
+            root.destroy()
+            
+            if folder_path:
+                result["path"] = folder_path.replace("/", "\\")  # Normalize for Windows
+        except Exception as e:
+            result["error"] = str(e)
+    
+    # Run tkinter in a separate thread to avoid blocking
+    thread = threading.Thread(target=run_dialog)
+    thread.start()
+    thread.join(timeout=60)  # 60 second timeout
+    
+    if result["error"]:
+        raise HTTPException(status_code=500, detail=result["error"])
+    
+    if not result["path"]:
+        return {"path": None, "cancelled": True}
+    
+    return {"path": result["path"], "cancelled": False}
+
+class WorkspacePath(BaseModel):
+    path: str
+
+@app.post("/set-workspace")
+async def set_workspace(body: WorkspacePath):
+    """Set the active workspace path (absolute path)"""
+    try:
+        # Check if absolute path or relative to app root
+        new_path = Path(body.path)
+        if not new_path.is_absolute():
+            # Resolve relative to the app root (parent of backend)
+            new_path = (Path(__file__).parent.parent / body.path).resolve()
+
+        if not new_path.exists():
+            raise HTTPException(status_code=400, detail=f"Path does not exist: {new_path}")
+        if not new_path.is_dir():
+            raise HTTPException(status_code=400, detail=f"Path is not a directory: {new_path}")
+        
+        file_manager.set_workspace(new_path)
+        files = await file_manager.get_directory()
+        
+        return {
+            "status": "success",
+            "workspace": str(file_manager.workspace_path),
+            "files": files
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/files/{path:path}")
 async def read_file(path: str):
@@ -162,11 +281,15 @@ async def get_pending_changes():
 
 @app.delete("/files")
 async def clear_workspace():
-    """Clear all files in workspace"""
-    result = await file_manager.clear_workspace()
-    if result.get("status") == "failed":
-        raise HTTPException(status_code=500, detail=result.get("error"))
-    return result
+    """Clear ALL files in workspace (DISABLED: Returns detachment confirmation instead)"""
+    file_manager.detach_workspace()
+    return {"status": "cleared", "detached": True, "message": "Workspace detached. Files safe on disk."}
+
+@app.post("/detach-workspace")
+async def detach_workspace():
+    """Explicitly detach the current workspace"""
+    file_manager.detach_workspace()
+    return {"status": "success", "message": "Workspace detached"}
 
 @app.post("/approve")
 async def approve_change(request: ApprovalRequest):
@@ -221,7 +344,7 @@ async def websocket_agents(websocket: WebSocket):
         try:
             # Add files context if not provided
             if "files" not in context:
-                context["files"] = await file_manager.list_files()
+                context["files"] = await file_manager.get_directory()
             
             # Stream agent responses
             async for event in orchestrator.process_message_stream(message, context, initial_agent=initial_agent):

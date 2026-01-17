@@ -39,3 +39,5 @@ screenshots/
 .pytest_cache/
 .coverage
 htmlcov/
+
+projects/
