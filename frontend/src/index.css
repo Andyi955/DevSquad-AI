@@ -1209,6 +1209,41 @@ pre {
   }
 }
 
+/* ============== Rename Button ============== */
+.rename-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.2s;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.file-tree-node:hover .rename-btn {
+  opacity: 1;
+}
+
+.rename-btn:hover {
+  color: var(--neon-purple);
+  transform: scale(1.2);
+}
+
+.file-tree-node {
+  position: relative;
+}
+
+.file-tree-node.file:hover,
+.file-tree-node.folder:hover {
+  background: var(--glass-bg);
+}
+
+
 .toast-icon {
   font-size: 1.5rem;
 }
@@ -1403,4 +1438,154 @@ pre {
     transform: scale(1);
     box-shadow: 0 0 0 0 rgba(147, 51, 234, 0);
   }
+}
+
+/* ============== File Tree ============== */
+.file-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.file-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.15s ease;
+  user-select: none;
+  font-size: 0.85rem;
+}
+
+.file-tree-node:hover {
+  background: var(--glass-bg);
+  color: var(--text-primary);
+}
+
+.file-tree-node.active {
+  background: rgba(147, 51, 234, 0.15);
+  color: var(--neon-purple);
+  border-right: 2px solid var(--neon-purple);
+}
+
+.file-tree-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 0.6rem;
+  transition: transform 0.2s ease;
+  opacity: 0.7;
+}
+
+.file-tree-arrow:hover {
+  opacity: 1;
+  color: var(--neon-purple);
+}
+
+.file-tree-arrow.open {
+  transform: rotate(90deg);
+}
+
+.file-tree-spacer {
+  width: 16px;
+  /* Matches arrow width */
+}
+
+.file-tree-icon {
+  font-size: 1rem;
+  opacity: 0.9;
+}
+
+.file-tree-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-tree-empty {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.85rem;
+}
+
+
+
+/* ============== File Tree Nodes and Drag & Drop ============== */
+.file-tree {
+  user-select: none;
+}
+
+.file-tree-node {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border-left: 2px solid transparent;
+}
+
+.file-tree-node:hover {
+  background: var(--glass-bg);
+}
+
+.file-tree-node.active {
+  background: var(--bg-elevated);
+  border-left-color: var(--neon-purple);
+}
+
+.file-tree-node.drag-over {
+  background: rgba(147, 51, 234, 0.2);
+  border-left-color: var(--neon-purple);
+  box-shadow: var(--glow-purple);
+}
+
+.file-tree-arrow {
+  font-size: 0.6rem;
+  transition: transform var(--transition-fast);
+  display: inline-block;
+  width: 12px;
+  color: var(--text-muted);
+}
+
+.file-tree-arrow.open {
+  transform: rotate(90deg);
+}
+
+.file-tree-spacer {
+  width: 12px;
+  display: inline-block;
+}
+
+.file-tree-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.file-tree-name {
+  flex: 1;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============== File Tree Input ============== */
+.file-tree-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+/* ============== File Tree Child Highlighting ============== */
+.file-tree-node.child-of-selected {
+  background: rgba(147, 51, 234, 0.03);
+  /* Extremely subtle hint */
 }

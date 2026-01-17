@@ -12,11 +12,11 @@ import ApprovalModal from './components/ApprovalModal'
 // Hooks
 import { useWebSocket } from './hooks/useWebSocket'
 
-const API_URL = 'http://localhost:8000'
+const API_URL = 'http://127.0.0.1:8000'
 
 function App() {
   // State
-  const [files, setFiles] = useState([])
+  const [fileTree, setFileTree] = useState([])
   const [selectedFile, setSelectedFile] = useState(null)
   const [messages, setMessages] = useState([])
   const [pendingChanges, setPendingChanges] = useState([])
@@ -31,6 +31,8 @@ function App() {
   const [attachedFiles, setAttachedFiles] = useState([])
   const [rightPanelTab, setRightPanelTab] = useState('research')
   const [isChangesFullScreen, setIsChangesFullScreen] = useState(false)
+  const [workspacePath, setWorkspacePath] = useState(null) // Absolute path to current workspace
+  const [activeProject, setActiveProject] = useState(null) // Currently active project (subfolder)
 
   // Handle incoming WebSocket messages
   const handleMessage = useCallback((data) => {
@@ -178,18 +180,89 @@ function App() {
     lastMessage,
     stopAgent,
     disconnect
-  } = useWebSocket(`ws://localhost:8000/ws/agents`, {
+  } = useWebSocket(`ws://127.0.0.1:8000/ws/agents`, {
     onMessage: handleMessage
   })
 
+  // Auto-sync: Poll for file changes every 2 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchFileTree()
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [])
+
   // API Functions
-  const fetchFiles = async () => {
+  const fetchFileTree = async () => {
+    console.log('🔄 [App] Fetching file tree...');
     try {
       const res = await fetch(`${API_URL}/files`)
       const data = await res.json()
-      setFiles(data.files || [])
+      console.log('🌳 [App] Received file tree:', data.files?.length, 'items');
+      setFileTree(data.files || [])
+      if (data.workspace) {
+        setWorkspacePath(data.workspace)
+      }
     } catch (err) {
-      console.error('Failed to fetch files:', err)
+      console.error('❌ [App] Failed to fetch file tree:', err)
+    }
+  }
+
+  // Open folder picker and set as active workspace
+  const openFolder = async () => {
+    try {
+      console.log('📂 [App] Starting openFolder process...');
+      showToast('Opening folder picker...', '📂')
+
+      // Clear current state immediately for a clean "Safe Switch" feel
+      setFileTree([])
+      setSelectedFile(null)
+
+      // Call backend to open native folder picker
+      const res = await fetch(`${API_URL}/select-folder`)
+      const data = await res.json()
+
+      if (data.cancelled || !data.path) {
+        console.log('⚠️ [App] Folder selection cancelled');
+        showToast('Folder selection cancelled', '⚠️')
+        // Restore files if cancelled? Actually, keeping it empty is fine, or we could refetch.
+        fetchFileTree()
+        return
+      }
+
+      console.log('🚀 [App] Selected path:', data.path);
+
+      // Set the selected folder as the new workspace
+      const setRes = await fetch(`${API_URL}/set-workspace`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: data.path })
+      })
+
+      if (!setRes.ok) {
+        const error = await setRes.json()
+        throw new Error(error.detail || 'Failed to set workspace')
+      }
+
+      const result = await setRes.json()
+      console.log('✅ [App] Workspace updated:', result.workspace);
+
+      // Update state with new workspace (Safe Switch)
+      setWorkspacePath(result.workspace)
+      setFileTree(result.files || [])
+      setSelectedFile(null)
+      setAttachedFiles([])
+      setActiveProject(null)
+
+      // Extract project name from path for display
+      const projectName = data.path.split('\\').pop() || data.path.split('/').pop()
+      showToast(`Opened: ${projectName}`, '📂')
+      console.log('🎊 [App] Project switched successfully to:', projectName);
+
+    } catch (err) {
+      console.error('❌ [App] Open folder failed:', err)
+      showToast(`Failed to open folder: ${err.message}`, '❌')
+      fetchFileTree() // Try to recover
     }
   }
 
@@ -203,27 +276,108 @@ function App() {
     }
   }
 
-  const uploadFiles = async (fileList) => {
-    const formData = new FormData()
-    for (const file of fileList) {
-      formData.append('files', file)
+  const uploadFiles = async (fileList, resetWorkspace = false) => {
+    // If resetting, clear workspace first
+    if (resetWorkspace) {
+      // confirm removed as per user request
+      await clearWorkspace(true)
     }
 
+    const formData = new FormData()
+    let count = 0
+    let skipped = 0
+    let detectedProject = null
+
+    // Files and folders to exclude
+    const EXCLUDED_DIRS = ['node_modules', '.git', 'venv', '.venv', '__pycache__', '.idea', '.vscode', '.DS_Store']
+
+    for (const file of fileList) {
+      // Use webkitRelativePath for folder uploads, preserving folder structure
+      // Normalize path separators to forward slashes
+      let filePath = (file.webkitRelativePath || file.name).replace(/\\/g, '/')
+
+      // Check for excluded directories in the path
+      const pathParts = filePath.split('/')
+      const isExcluded = pathParts.some(part => EXCLUDED_DIRS.includes(part))
+
+      if (isExcluded) {
+        skipped++
+        continue
+      }
+
+      // Detect project root from first valid file
+      if (!detectedProject && pathParts.length > 1) {
+        detectedProject = pathParts[0]
+      }
+
+      formData.append('files', file)
+      formData.append('paths', filePath)
+      count++
+    }
+
+    if (count === 0) {
+      if (skipped > 0) showToast(`Skipped ${skipped} files (system/ignored folders)`, '⚠️')
+      return
+    }
+
+    showToast(`Uploading ${count} files...`, '📤')
+    console.log('📤 [App] Uploading', count, 'files. Reset:', resetWorkspace);
+
     try {
+      // If reset is requested, we detach the current workspace first
+      // This prevents the new project from being uploaded INSIDE the old one
+      if (resetWorkspace) {
+        console.log('🔌 [App] Detaging previous workspace before upload...');
+        await fetch(`${API_URL}/detach-workspace`, { method: 'POST' });
+      }
+
       const res = await fetch(`${API_URL}/upload`, {
         method: 'POST',
         body: formData
       })
+
+      if (!res.ok) {
+        throw new Error(`Upload failed: ${res.statusText}`)
+      }
+
       const data = await res.json()
-      fetchFiles()
+      fetchFileTree()
+
+      // Auto-switch to the newly uploaded project (Safe Switch + Auto Attach)
+      if (detectedProject) {
+        setActiveProject(detectedProject)
+
+        // Find the absolute path to this project by joining with projects root logic
+        // We can get the base path from the result of the upload or just rely on the backend 
+        // resolving 'projects/projectName' correctly.
+        const projectPath = `projects/${detectedProject}`;
+        console.log('🔗 [App] Auto-attaching backend to new project:', projectPath);
+
+        try {
+          await fetch(`${API_URL}/set-workspace`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: projectPath })
+          });
+          fetchFileTree();
+        } catch (err) {
+          console.error('Failed to auto-attach workspace:', err);
+        }
+
+        showToast(`Switched to project: ${detectedProject}`, '📂')
+      }
+
+      showToast(`Successfully uploaded ${data.count} files`, '✅')
       return data
     } catch (err) {
       console.error('Upload failed:', err)
+      showToast('Upload failed', '❌')
     }
   }
 
   const showToast = useCallback((message, icon = '⚠️') => {
-    const id = Date.now()
+    // Use a more unique ID generation strategy to prevent collisions
+    const id = Date.now() + Math.random().toString(36).substr(2, 9)
     setToasts(prev => [...prev, { id, message, icon }])
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id))
@@ -292,17 +446,166 @@ function App() {
       }
     }
 
+
     // Send to WebSocket
     wsSend({
       type: 'chat',
       message,
       context: {
-        files,
+        files: fileTree,
         current_file: currentFileValid,
         attached_files: attachedFiles
       }
     })
-  }, [isConnected, wsSend, files, selectedFile, attachedFiles])
+  }, [isConnected, wsSend, fileTree, selectedFile, attachedFiles])
+
+  // Clear workspace (UI state only - files remain on disk)
+  const clearWorkspace = async (skipConfirm = false) => {
+    if (!skipConfirm && !confirm('Clear current view? Files will remain saved on disk.')) return
+
+    // DETACH backend so it stops looking at these files
+    try {
+      await fetch(`${API_URL}/detach-workspace`, { method: 'POST' })
+    } catch (err) {
+      console.error('Failed to detach workspace:', err)
+    }
+
+    setFileTree([])
+    setSelectedFile(null)
+    setAttachedFiles([])
+    setMessages([])
+    setPendingChanges([])
+    setApprovedChanges([])
+    setResearchResults([])
+    setActiveProject(null) // Reset active project
+    setWorkspacePath(null) // Clear workspace path
+    showToast('Workspace view cleared', '🧹')
+    console.log('🧹 [App] Workspace state and backend detached.');
+  }
+
+  const createFile = async (filePath) => {
+    console.log('🛠️ App.createFile called with:', filePath)
+    try {
+      const res = await fetch(`${API_URL}/create-file`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath, content: '' })
+      })
+
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}))
+        throw new Error(error.detail || 'Failed to create file')
+      }
+
+      fetchFileTree()
+      showToast(`Created ${filePath}`, '📄')
+    } catch (err) {
+      console.error('Create file failed:', err)
+      showToast(err.message, '❌')
+    }
+  }
+
+  const createFolder = async (folderPath) => {
+    try {
+      const formData = new FormData()
+      formData.append('path', folderPath)
+
+      const res = await fetch(`${API_URL}/create-folder`, {
+        method: 'POST',
+        body: formData
+      })
+
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}))
+        throw new Error(error.detail || 'Failed to create folder')
+      }
+
+      fetchFileTree()
+      showToast(`Created folder ${folderPath}`, '📂')
+    } catch (err) {
+      console.error('Create folder failed:', err)
+      showToast(err.message, '❌')
+    }
+  }
+
+  const uploadToPath = async (fileList, targetPath) => {
+    const formData = new FormData()
+    let count = 0
+
+    for (const file of fileList) {
+      const filePath = `${targetPath}/${file.name}`
+      formData.append('files', file)
+      formData.append('paths', filePath)
+      count++
+    }
+
+    if (count === 0) return
+
+    try {
+      const res = await fetch(`${API_URL}/upload`, {
+        method: 'POST',
+        body: formData
+      })
+
+      if (!res.ok) {
+        throw new Error(`Upload failed: ${res.statusText}`)
+      }
+
+      fetchFileTree()
+      showToast(`Added ${count} file(s) to ${targetPath}`, '✅')
+    } catch (err) {
+      console.error('Upload to path failed:', err)
+      showToast('Failed to upload files', '❌')
+    }
+  }
+
+  // Move file or folder within workspace
+  const moveItem = async (sourcePath, destinationFolder) => {
+    try {
+      const res = await fetch(`${API_URL}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_path: sourcePath,
+          destination_folder: destinationFolder
+        })
+      })
+
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.detail || 'Move failed')
+      }
+
+      const data = await res.json()
+      fetchFileTree()
+      showToast(`Moved to ${destinationFolder}`, '✅')
+      return data
+    } catch (err) {
+      console.error('Move failed:', err)
+      showToast(`Move failed: ${err.message}`, '❌')
+    }
+  }
+
+  const renameItem = async (path, newName) => {
+    try {
+      const res = await fetch(`${API_URL}/rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, new_name: newName })
+      })
+
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.detail || 'Rename failed')
+      }
+
+      fetchFileTree()
+      showToast(`Renamed to ${newName}`, '✏️')
+    } catch (err) {
+      console.error('Rename failed:', err)
+      showToast(`Rename failed: ${err.message}`, '❌')
+    }
+  }
 
   const approveChange = async (changeId, approved, feedback = null) => {
     try {
@@ -329,7 +632,7 @@ function App() {
       setActiveChange(null)
       setIsChangesFullScreen(false) // Auto-close full screen view
 
-      if (approved) fetchFiles()
+      if (approved) fetchFileTree()
 
       // Signal orchestration to resume
       wsSend({
@@ -337,7 +640,7 @@ function App() {
         approved,
         feedback,
         context: {
-          files,
+          files: fileTree,
           current_file: selectedFile ? {
             path: selectedFile.path,
             content: await fetch(`${API_URL}/files/${selectedFile.path.replace(/\//g, '%2F')}`)
@@ -392,11 +695,19 @@ function App() {
       />
 
       <Sidebar
-        files={files}
+        files={fileTree}
         selectedFile={selectedFile}
         onSelectFile={setSelectedFile}
         onUpload={uploadFiles}
         onAttachFiles={attachFiles}
+        onClearWorkspace={clearWorkspace}
+        onCreateFile={createFile}
+        onCreateFolder={createFolder}
+        onUploadToPath={uploadToPath}
+        onMoveItem={moveItem}
+        onRenameItem={renameItem}
+        onOpenFolder={openFolder}
+        workspacePath={workspacePath}
       />
 
       <main className="main-content">
