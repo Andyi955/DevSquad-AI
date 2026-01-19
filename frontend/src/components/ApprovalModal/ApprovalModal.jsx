@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react'
+import './ApprovalModal.css'
 
 function ApprovalModal({ change, onApprove, onReject, onClose }) {
     const [feedback, setFeedback] = useState('')

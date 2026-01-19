@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import './ChangesPanel.css';
 import ReactDiffViewer from 'react-diff-viewer-continued';
 import Prism from 'prismjs';
 
