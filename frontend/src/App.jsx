@@ -612,6 +612,25 @@ function App() {
     }
   }
 
+  // Clear current chat session
+  const handleNewChat = useCallback(async () => {
+    try {
+      await fetch(`${API_URL}/clear-chat`, { method: 'POST' })
+      setMessages([])
+      setPendingChanges([])
+      setApprovedChanges([])
+      setResearchResults([])
+      setAttachedFiles([])
+      setIsTyping(false)
+      setCurrentAgent(null)
+      setIsStopped(false)
+      showToast('Chat Reset ✨', '🏙️')
+    } catch (err) {
+      console.error('Failed to clear chat:', err)
+      showToast('Failed to reset chat', '❌')
+    }
+  }, [showToast])
+
   const approveChange = async (changeId, approved, feedback = null) => {
     try {
       const res = await fetch(`${API_URL}/approve`, {
@@ -697,6 +716,7 @@ function App() {
       <Header
         isConnected={isConnected}
         usage={usage}
+        onNewChat={handleNewChat}
       />
 
       <Sidebar

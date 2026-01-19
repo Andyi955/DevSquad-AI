@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import './Header.css'
 
-function Header({ isConnected, usage }) {
+function Header({ isConnected, usage, onNewChat }) {
     return (
         <header className="header">
             <div className="logo">
@@ -22,6 +22,20 @@ function Header({ isConnected, usage }) {
             </div>
 
             <div className="header-actions">
+                <button
+                    className="btn btn-secondary glass-card"
+                    onClick={onNewChat}
+                    style={{
+                        padding: '6px 12px',
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        color: 'var(--neon-cyan)',
+                        border: '1px solid var(--neon-cyan)',
+                        boxShadow: 'var(--glow-cyan)'
+                    }}
+                >
+                    + New Chat
+                </button>
                 {/* Connection Status */}
                 <div className="glass-card" style={{
                     padding: '6px 12px',

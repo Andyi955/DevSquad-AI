@@ -321,6 +321,14 @@ async def get_usage():
     """Get API usage statistics"""
     return usage_tracker.get_stats()
 
+@app.post("/clear-chat")
+async def clear_chat():
+    """Clear the current conversation history"""
+    orchestrator.conversation = []
+    orchestrator.mission_status = "IDLE"
+    orchestrator.last_handoff = None
+    return {"status": "success", "message": "Conversation cleared"}
+
 @app.post("/chat")
 async def chat(message: ChatMessage):
     """Send a message to agents (non-streaming, returns full response)"""
