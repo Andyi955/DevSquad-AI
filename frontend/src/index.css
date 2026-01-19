@@ -67,6 +67,16 @@
   padding: 0;
 }
 
+button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  outline: none;
+}
+
 html {
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
@@ -115,21 +125,171 @@ pre {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
-/* ============== Main Layout Grid ============== */
+/* ============== Main Tabs & Nav ============== */
+.main-tabs {
+  display: flex;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  height: 52px;
+  align-items: center;
+  padding: 0 16px;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.main-tab-btn {
+  padding: 0 20px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: all var(--transition-base);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  position: relative;
+  border-bottom: 2px solid transparent;
+  outline: none;
+}
+
+.main-tab-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.main-tab-btn.active.chat {
+  color: var(--neon-purple);
+  border-bottom-color: var(--neon-purple);
+  text-shadow: 0 0 10px rgba(147, 51, 234, 0.3);
+}
+
+.main-tab-btn.active.research {
+  color: var(--neon-cyan);
+  border-bottom-color: var(--neon-cyan);
+  text-shadow: 0 0 10px rgba(6, 182, 212, 0.3);
+}
+
+/* ============== Main Layout ============== */
 .app-container {
-  display: grid;
-  grid-template-columns: 280px 1fr 320px;
-  grid-template-rows: 60px 1fr;
+  display: flex;
+  flex-direction: column;
   height: 100vh;
-  gap: 1px;
-  background: var(--border-color);
+  width: 100vw;
+  max-width: 100vw;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+.workspace-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  width: 100%;
+}
+
+.sidebar {
+  flex: 0 0 260px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  transition: all var(--transition-base);
+  overflow: hidden;
 }
 
 .main-content {
+  flex: 1;
   background: var(--bg-primary);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
+  height: 100%;
+}
+
+.research-panel-container {
+  flex: 0 0 320px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  transition: all var(--transition-base);
+  overflow: hidden;
+}
+
+/* ============== Responsive Layout (Media Queries) ============== */
+
+/* Large Screens */
+@media (min-width: 1400px) {
+  .sidebar {
+    flex: 0 0 280px;
+  }
+
+  .research-panel-container {
+    flex: 0 0 380px;
+  }
+}
+
+/* Medium Screens / GitHub GIF Size (800x600+) */
+@media (max-width: 1100px) {
+  .sidebar {
+    flex: 0 0 200px;
+  }
+
+  .research-panel-container {
+    flex: 0 0 260px;
+  }
+}
+
+/* Compact Mode (Targeting the 800px GIF size) */
+@media (max-width: 850px) {
+  .sidebar {
+    flex: 0 0 160px;
+  }
+
+  .research-panel-container {
+    flex: 0 0 200px;
+  }
+
+  /* Shrink text for the small resolution */
+  html {
+    font-size: 14px;
+  }
+}
+
+/* Mobile or Ultra-Small GIF ( < 700px) */
+@media (max-width: 700px) {
+  .workspace-layout {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .sidebar {
+    flex: 0 0 auto;
+    max-height: 200px;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .research-panel-container {
+    flex: 0 0 auto;
+    height: 300px;
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+  }
+
+  .main-content {
+    flex: 0 0 500px;
+    /* Force some height so it doesn't vanish */
+  }
 }
 
 /* ============== Global Utility Classes ============== */
@@ -279,13 +439,5 @@ pre {
 
   to {
     transform: rotate(360deg);
-  }
-}
-
-/* ============== Responsive ============== */
-@media (max-width: 1024px) {
-  .app-container {
-    grid-template-columns: 1fr;
-    grid-template-rows: 60px 1fr;
   }
 }

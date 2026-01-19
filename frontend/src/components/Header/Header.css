@@ -1,11 +1,33 @@
 .header {
-    grid-column: 1 / -1;
+    height: 60px;
     background: var(--bg-secondary);
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 0 var(--space-lg);
     border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+    .header {
+        padding: 0 var(--space-md);
+    }
+
+    .logo span:last-child {
+        display: none;
+        /* Hide 'Multi-Agent Code Assistant' */
+    }
+}
+
+@media (max-width: 800px) {
+    .usage-card {
+        display: none !important;
+    }
+
+    .header-actions {
+        gap: var(--space-sm);
+    }
 }
 
 .logo {

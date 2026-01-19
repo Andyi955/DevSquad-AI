@@ -1,11 +1,12 @@
-"""
-Multi-Agent Code Assistant - FastAPI Backend
-Real-time AI agent collaboration for code review and development
-"""
-
 import os
-import json
+import sys
 import asyncio
+
+# AT THE ABSOLUTE TOP
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+import json
 from pathlib import Path
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -26,402 +27,242 @@ from services.web_scraper import WebScraper
 
 # Initialize services
 file_manager = FileManager()
+scraper = WebScraper()
 usage_tracker = UsageTracker()
-web_scraper = WebScraper()
-orchestrator = AgentOrchestrator(usage_tracker, file_manager)
+orchestrator = AgentOrchestrator(file_manager, scraper, usage_tracker)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
-    # Startup
     print("🚀 Starting Multi-Agent Code Assistant...")
-    await orchestrator.initialize()
+    try:
+        await orchestrator.initialize()
+    except Exception as e:
+        print(f"❌ Initialization error: {e}")
     yield
     # Shutdown
-    print("👋 Shutting down...")
+    print("👋 Shutting down agents...")
+    print("👋 Shutdown complete.")
 
 app = FastAPI(
-    title="Multi-Agent Code Assistant",
-    description="AI agents collaborate to review and improve your code",
+    title="DevSquad AI API",
+    description="Multi-agent collaboration API",
     version="1.0.0",
     lifespan=lifespan
 )
 
-# CORS for frontend
+# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ============== Models ==============
+# Shared memory for active research
+active_research = {}
 
 class ChatMessage(BaseModel):
-    message: str
-    context: Optional[dict] = None
-
-class FileContent(BaseModel):
-    path: str
     content: str
+    agent_id: Optional[str] = None
+    files: Optional[List[str]] = None
 
-class ApprovalRequest(BaseModel):
-    change_id: str
-    approved: bool
+@app.post("/chat")
+async def chat_endpoint(message: ChatMessage):
+    """Legacy HTTP endpoint for chat (now handled via WebSockets)"""
+    return {"status": "Use WebSocket at /ws/agents"}
 
-class ResearchQuery(BaseModel):
-    query: str
-    sources: Optional[List[str]] = None
-
-# ============== WebSocket Connection Manager ==============
-
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: List[WebSocket] = []
+@app.websocket("/ws/agents")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    print(f"🔌 Client connected. Total: {len(app.state.connections) + 1 if hasattr(app.state, 'connections') else 1}")
     
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-        print(f"🔌 Client connected. Total: {len(self.active_connections)}")
+    if not hasattr(app.state, "connections"):
+        app.state.connections = []
     
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-        print(f"🔌 Client disconnected. Total: {len(self.active_connections)}")
+    app.state.connections.append(websocket)
     
-    async def broadcast(self, message: dict):
-        for connection in self.active_connections:
-            try:
-                await connection.send_json(message)
-            except Exception as e:
-                print(f"Error broadcasting: {e}")
+    try:
+        while True:
+            data = await websocket.receive_text()
+            message_data = json.loads(data)
+            
+            # Handle manual research triggers from UI
+            if message_data.get("type") == "research":
+                query = message_data.get("query")
+                print(f"🕵️‍♂️ Manual research initiated: {query}")
+                
+                async for event in orchestrator.do_research(query):
+                    await websocket.send_text(json.dumps(event))
+                continue
 
-manager = ConnectionManager()
+            # Handle normal agent flow
+            content = message_data.get("content", "")
+            attached_files = message_data.get("files", [])
+            
+            # Create context with attached files
+            context = {"attached_files": attached_files} if attached_files else {}
+            
+            async for event in orchestrator.process_message_stream(content, context):
+                await websocket.send_text(json.dumps(event))
+                
+    except WebSocketDisconnect:
+        app.state.connections.remove(websocket)
+        print(f"🔌 Client disconnected. Total: {len(app.state.connections)}")
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        if websocket in app.state.connections:
+            app.state.connections.remove(websocket)
 
-# ============== REST Endpoints ==============
+@app.get("/files")
+async def list_files():
+    """List all project files"""
+    files = await file_manager.get_directory()
+    return {
+        "files": files,
+        "workspace": str(file_manager.workspace_path) if file_manager.workspace_path else None
+    }
 
-@app.get("/")
-async def root():
-    return {"message": "🤖 Multi-Agent Code Assistant API", "status": "running"}
+@app.post("/files/upload")
+async def upload_files(files: List[UploadFile] = File(...), path: str = Form(".")):
+    """Upload files to the project"""
+    saved = []
+    for file in files:
+        file_path = f"{path}/{file.filename}"
+        content = await file.read()
+        file_manager.write_file(file_path, content.decode())
+        saved.append(file_path)
+    return {"status": "success", "files": saved}
+
+@app.post("/clear-chat")
+async def clear_chat():
+    """Clear conversation history"""
+    orchestrator.clear_history()
+    return {"status": "success"}
+
+@app.post("/research")
+async def initiate_research(data: dict):
+    """Initiate a research mission"""
+    query = data.get("query")
+    if not query:
+        raise HTTPException(status_code=400, detail="Query is required")
+    
+    # In a real app we'd trigger the background agent
+    # For now we'll just acknowledge the mission start
+    return {"status": "research_initiated", "query": query}
+
+@app.get("/usage")
+async def get_usage():
+    """Get API usage statistics"""
+    return usage_tracker.get_summary()
+
+@app.post("/set-workspace")
+async def set_workspace(data: dict):
+    path_str = data.get("path")
+    if not path_str:
+        raise HTTPException(status_code=400, detail="Path is required")
+    
+    # Path will be resolved by FileManager
+    file_manager.set_workspace(Path(path_str))
+    files = await file_manager.get_directory()
+    return {
+        "status": "success", 
+        "workspace": str(file_manager.workspace_path),
+        "files": files
+    }
+
+@app.post("/detach-workspace")
+async def detach_workspace():
+    file_manager.detach_workspace()
+    return {"status": "detached"}
 
 @app.post("/upload")
-async def upload_files(
-    files: List[UploadFile] = File(...), 
-    paths: List[str] = Form(None)
-):
-    """Upload code files to workspace"""
-    uploaded = []
-    
-    # If paths are not provided (e.g. simple drag drop without folder), use empty list
-    # But usually creating a list of None or handling the index is better
-    
+async def upload_files_multi(files: List[UploadFile] = File(...), paths: List[str] = Form(...)):
+    """Upload multiple files with their relative paths"""
+    saved = []
     for i, file in enumerate(files):
-        try:
-            # Get corresponding path if available
-            rel_path = paths[i] if paths and i < len(paths) else None
-            # If path is "undefined" string (from frontend FormData sometimes), ignore it
-            if rel_path == "undefined" or rel_path == "null":
-                rel_path = None
-                
-            print(f"📤 [Backend] Saving uploaded file to: {file_manager.workspace_path or 'ROOT'} / {rel_path or file.filename}")
-            result = await file_manager.save_file(file, relative_path=rel_path)
-            uploaded.append(result)
-        except Exception as e:
-            print(f"Error uploading {file.filename}: {e}")
-            # Continue uploading other files instead of failing all? 
-            # Or raise error. Let's return error for now to be safe, or just skip.
-            # User experience: probably better to see what failed. 
-            pass # We'll just skip failed ones or maybe we should raise
-            
-    return {"uploaded": uploaded, "count": len(uploaded)}
+        rel_path = paths[i]
+        result = await file_manager.save_file(file, rel_path)
+        saved.append(result)
+    return {"status": "success", "count": len(saved), "files": saved}
 
 @app.post("/create-file")
-async def create_file(body: FileContent):
-    """Create a new empty file or file with content"""
+async def create_file(data: dict):
+    path = data.get("path")
+    content = data.get("content", "")
+    if not path:
+        raise HTTPException(status_code=400, detail="Path is required")
+    
     try:
-        result = await file_manager.save_file_from_content(body.path, body.content or "")
+        result = await file_manager.save_file_from_content(path, content)
         return result
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/create-folder")
 async def create_folder(path: str = Form(...)):
-    """Create a new folder"""
     try:
         result = await file_manager.create_folder(path)
         return result
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-class MoveRequest(BaseModel):
-    source_path: str
-    destination_folder: str
-
-@app.post("/move")
-async def move_item(body: MoveRequest):
-    """Move a file or folder to a new location"""
-    try:
-        result = await file_manager.move_item(body.source_path, body.destination_folder)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-class RenameRequest(BaseModel):
-    path: str
-    new_name: str
 
 @app.post("/rename")
-async def rename_item(body: RenameRequest):
-    """Rename a file or folder"""
+async def rename_item(data: dict):
+    path = data.get("path")
+    new_name = data.get("new_name")
+    if not path or not new_name:
+        raise HTTPException(status_code=400, detail="Path and new_name are required")
+    
     try:
-        result = await file_manager.rename_item(body.path, body.new_name)
+        result = await file_manager.rename_item(path, new_name)
         return result
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/files")
-async def list_files():
-    """List all files in workspace"""
-    files = await file_manager.get_directory()
-    workspace = str(file_manager.workspace_path) if file_manager.workspace_path else None
-    return {"files": files, "workspace": workspace}
-
-@app.get("/select-folder")
-async def select_folder():
-    """Open native folder picker dialog and return selected path"""
-    import threading
-    result = {"path": None, "error": None}
+@app.post("/move")
+async def move_item(data: dict):
+    source_path = data.get("source_path")
+    destination_folder = data.get("destination_folder", "")
+    if not source_path:
+        raise HTTPException(status_code=400, detail="source_path is required")
     
-    def run_dialog():
-        try:
-            import tkinter as tk
-            from tkinter import filedialog
-            
-            # Create and hide the root window
-            root = tk.Tk()
-            root.withdraw()
-            root.attributes('-topmost', True)  # Bring dialog to front
-            
-            # Open folder picker
-            folder_path = filedialog.askdirectory(
-                title="Select Project Folder",
-                mustexist=True
-            )
-            
-            root.destroy()
-            
-            if folder_path:
-                result["path"] = folder_path.replace("/", "\\")  # Normalize for Windows
-        except Exception as e:
-            result["error"] = str(e)
-    
-    # Run tkinter in a separate thread to avoid blocking
-    thread = threading.Thread(target=run_dialog)
-    thread.start()
-    thread.join(timeout=60)  # 60 second timeout
-    
-    if result["error"]:
-        raise HTTPException(status_code=500, detail=result["error"])
-    
-    if not result["path"]:
-        return {"path": None, "cancelled": True}
-    
-    return {"path": result["path"], "cancelled": False}
-
-class WorkspacePath(BaseModel):
-    path: str
-
-@app.post("/set-workspace")
-async def set_workspace(body: WorkspacePath):
-    """Set the active workspace path (absolute path)"""
     try:
-        # Check if absolute path or relative to app root
-        new_path = Path(body.path)
-        if not new_path.is_absolute():
-            # Resolve relative to the app root (parent of backend)
-            new_path = (Path(__file__).parent.parent / body.path).resolve()
-
-        if not new_path.exists():
-            raise HTTPException(status_code=400, detail=f"Path does not exist: {new_path}")
-        if not new_path.is_dir():
-            raise HTTPException(status_code=400, detail=f"Path is not a directory: {new_path}")
-        
-        file_manager.set_workspace(new_path)
-        files = await file_manager.get_directory()
-        
-        return {
-            "status": "success",
-            "workspace": str(file_manager.workspace_path),
-            "files": files
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        result = await file_manager.move_item(source_path, destination_folder)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/files/{path:path}")
 async def read_file(path: str):
-    """Read a specific file"""
     content = await file_manager.read_file(path)
     if content is None:
         raise HTTPException(status_code=404, detail="File not found")
     return {"path": path, "content": content}
 
-@app.put("/files/{path:path}")
-async def write_file(path: str, body: FileContent):
-    """Write/update a file (creates pending change)"""
-    change_id = await file_manager.create_pending_change(path, body.content)
-    return {"change_id": change_id, "status": "pending_approval"}
-
 @app.get("/pending-changes")
 async def get_pending_changes():
-    """Get all pending file changes awaiting approval"""
-    changes = file_manager.get_pending_changes()
-    return {"changes": changes}
+    return file_manager.get_pending_changes()
 
-@app.delete("/files")
-async def clear_workspace():
-    """Clear ALL files in workspace (DISABLED: Returns detachment confirmation instead)"""
-    file_manager.detach_workspace()
-    return {"status": "cleared", "detached": True, "message": "Workspace detached. Files safe on disk."}
-
-@app.post("/detach-workspace")
-async def detach_workspace():
-    """Explicitly detach the current workspace"""
-    file_manager.detach_workspace()
-    return {"status": "success", "message": "Workspace detached"}
-
-@app.post("/approve")
-async def approve_change(request: ApprovalRequest):
-    """Approve or reject a file change"""
-    if request.approved:
-        result = await file_manager.apply_change(request.change_id)
-    else:
-        result = file_manager.reject_change(request.change_id)
+@app.post("/approve/{change_id}")
+async def approve_change(change_id: str):
+    result = await file_manager.apply_change(change_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
     
-    # Broadcast to all connected clients
-    await manager.broadcast({
-        "type": "change_result",
-        "change_id": request.change_id,
-        "approved": request.approved,
-        "result": result
-    })
-    
+    # Check if this change finished a mission
+    await orchestrator.handle_approval_signal(approved=True)
     return result
 
-@app.post("/research")
-async def web_research(query: ResearchQuery):
-    """Perform web research and return summarized results"""
-    usage_tracker.track("research", 1)
-    results = await web_scraper.search_and_summarize(query.query, query.sources)
-    return results
-
-@app.get("/usage")
-async def get_usage():
-    """Get API usage statistics"""
-    return usage_tracker.get_stats()
-
-@app.post("/clear-chat")
-async def clear_chat():
-    """Clear the current conversation history"""
-    orchestrator.conversation = []
-    orchestrator.mission_status = "IDLE"
-    orchestrator.last_handoff = None
-    return {"status": "success", "message": "Conversation cleared"}
-
-@app.post("/chat")
-async def chat(message: ChatMessage):
-    """Send a message to agents (non-streaming, returns full response)"""
-    response = await orchestrator.process_message(
-        message.message, 
-        message.context,
-        stream=False
-    )
-    return response
-
-# ============== WebSocket Endpoint ==============
-
-@app.websocket("/ws/agents")
-async def websocket_agents(websocket: WebSocket):
-    """Real-time agent conversation streaming"""
-    await manager.connect(websocket)
+@app.post("/reject/{change_id}")
+async def reject_change(change_id: str):
+    result = file_manager.reject_change(change_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
     
-    current_task: Optional[asyncio.Task] = None
-    
-    async def run_agent_stream(message: str, context: dict, initial_agent: str = None):
-        try:
-            # Add files context if not provided
-            if "files" not in context:
-                context["files"] = await file_manager.get_directory()
-            
-            # Stream agent responses
-            async for event in orchestrator.process_message_stream(message, context, initial_agent=initial_agent):
-                await websocket.send_json(event)
-        except asyncio.CancelledError:
-            print("Agent task cancelled")
-        except Exception as e:
-            print(f"Error in agent stream: {e}")
-            await websocket.send_json({"type": "error", "agent": "System", "content": str(e)})
-
-    try:
-        while True:
-            # Receive message from client
-            data = await websocket.receive_json()
-            
-            if data.get("type") == "chat":
-                # Cancel existing task if any
-                if current_task and not current_task.done():
-                    current_task.cancel()
-                
-                message = data.get("message", "")
-                context = data.get("context", {})
-                
-                # Start new streaming task
-                current_task = asyncio.create_task(run_agent_stream(message, context))
-                
-            elif data.get("type") == "approval_done":
-                # Handle approval signal
-                approved = data.get("approved", True)
-                feedback = data.get("feedback")
-                
-                # Get signal from orchestrator
-                signal = await orchestrator.handle_approval_signal(approved, feedback)
-                
-                # Start new streaming task to resume ONLY if there's a next agent/message
-                if signal.get("next_agent"):
-                    if current_task and not current_task.done():
-                        current_task.cancel()
-                    
-                    context = data.get("context", {})
-                    current_task = asyncio.create_task(run_agent_stream(
-                        message=signal["message"], 
-                        context=context,
-                        initial_agent=signal["next_agent"]
-                    ))
-
-            elif data.get("type") == "stop":
-                if current_task and not current_task.done():
-                    current_task.cancel()
-                    await websocket.send_json({
-                        "type": "agent_done", 
-                        "agent": "System", 
-                        "message": "Task stopped by user 🛑"
-                    })
-                
-            elif data.get("type") == "ping":
-                await websocket.send_json({"type": "pong"})
-                
-    except WebSocketDisconnect:
-        if current_task and not current_task.done():
-            current_task.cancel()
-        manager.disconnect(websocket)
-    except Exception as e:
-        print(f"WebSocket error: {e}")
-        if current_task and not current_task.done():
-            current_task.cancel()
-        manager.disconnect(websocket)
-
-# ============== Health Check ==============
+    await orchestrator.handle_approval_signal(approved=False)
+    return result
 
 @app.get("/health")
 async def health_check():
@@ -433,5 +274,9 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+    # When running manually, we force Proactor
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    
     port = int(os.getenv("BACKEND_PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)

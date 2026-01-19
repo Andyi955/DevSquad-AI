@@ -45,30 +45,37 @@ def test_create_nested_folder():
 def test_move_folder():
     """Test moving a folder via API"""
     # Create source folder
-    os.makedirs(os.path.join(TEST_WORKSPACE, "source_folder"), exist_ok=True)
+    source = os.path.join(TEST_WORKSPACE, "source_folder")
+    dest_dir = os.path.join(TEST_WORKSPACE, "target_dir")
+    os.makedirs(source, exist_ok=True)
+    os.makedirs(dest_dir, exist_ok=True)
     
-    # Move it
+    # Move it into target_dir
     response = client.post("/move", json={
         "source_path": "source_folder",
-        "destination_folder": "moved_folder"
+        "destination_folder": "target_dir"
     })
     
     assert response.status_code == 200
-    assert not os.path.exists(os.path.join(TEST_WORKSPACE, "source_folder"))
-    assert os.path.exists(os.path.join(TEST_WORKSPACE, "moved_folder"))
+    assert not os.path.exists(source)
+    assert os.path.exists(os.path.join(dest_dir, "source_folder"))
 
 def test_move_file():
     """Test moving a file via API"""
-    # Create source file
-    with open(os.path.join(TEST_WORKSPACE, "test_file.txt"), "w") as f:
+    # Create source file and target folder
+    source_file = os.path.join(TEST_WORKSPACE, "test_file.txt")
+    dest_dir = os.path.join(TEST_WORKSPACE, "file_dest")
+    os.makedirs(dest_dir, exist_ok=True)
+    
+    with open(source_file, "w") as f:
         f.write("content")
         
-    # Move it
+    # Move it into file_dest
     response = client.post("/move", json={
         "source_path": "test_file.txt",
-        "destination_folder": "moved_file.txt"
+        "destination_folder": "file_dest"
     })
     
     assert response.status_code == 200
-    assert not os.path.exists(os.path.join(TEST_WORKSPACE, "test_file.txt"))
-    assert os.path.exists(os.path.join(TEST_WORKSPACE, "moved_file.txt"))
+    assert not os.path.exists(source_file)
+    assert os.path.exists(os.path.join(dest_dir, "test_file.txt"))

@@ -8,11 +8,16 @@ import asyncio
 from typing import Dict, List, Optional, AsyncGenerator, Any
 from dataclasses import dataclass, field
 from datetime import datetime
+import os
+import shutil
+import aiofiles
 
 from .senior_dev import SeniorDevAgent
 from .junior_dev import JuniorDevAgent
 from .unit_tester import UnitTesterAgent
 from .researcher import ResearcherAgent
+from .research_lead import ResearchLeadAgent
+from .summarizer import SummarizerAgent
 
 
 @dataclass
@@ -34,13 +39,15 @@ class AgentOrchestrator:
         "JUNIOR": "Junior Dev",
         "TESTER": "Unit Tester",
         "RESEARCH": "Researcher",
+        "LEAD": "Research Lead",
         "SEARCH": "Search",
         "FILE_SEARCH": "FileSearch"
     }
     
-    def __init__(self, usage_tracker=None, file_manager=None):
-        self.usage_tracker = usage_tracker
+    def __init__(self, file_manager=None, scraper=None, usage_tracker=None):
         self.file_manager = file_manager
+        self.scraper = scraper
+        self.usage_tracker = usage_tracker
         self.agents: Dict[str, Any] = {}
         self.conversation: List[Message] = []
         self.pending_file_changes: List[dict] = []
@@ -57,7 +64,9 @@ class AgentOrchestrator:
             "Senior Dev": SeniorDevAgent(),
             "Junior Dev": JuniorDevAgent(),
             "Unit Tester": UnitTesterAgent(),
-            "Researcher": ResearcherAgent()
+            "Researcher": ResearcherAgent(),
+            "Research Lead": ResearchLeadAgent(),
+            "Summarizer": SummarizerAgent()
         }
         self.initialized = True
         print("✅ All agents initialized")
@@ -74,8 +83,10 @@ class AgentOrchestrator:
         if re.search(r'\b(tests?|testing|coverage|unit tests?)\b', message, re.IGNORECASE):
             return "Unit Tester"
         
-        # Researcher keywords
-        # Note: "find" is very common, might be risky, but kept as per original design
+        # Research keywords
+        if re.search(r'\b(deep research|thorough research|analyze|report|synthesis|multiple sources|comparison)\b', message, re.IGNORECASE):
+            return "Research Lead"
+            
         if re.search(r'\b(research|search|find|look up|latest|docs?|documentation)\b', message, re.IGNORECASE):
             return "Researcher"
         
@@ -106,7 +117,9 @@ class AgentOrchestrator:
         search_pattern = r'\[SEARCH:([^\]]+)\]'
         searches = re.findall(search_pattern, content)
         for query in searches:
-            cues.append(f"SEARCH:{query.strip()}")
+            # Strip quotes and whitespace
+            clean_query = query.strip().strip('"').strip("'")
+            cues.append(f"SEARCH:{clean_query}")
 
         # Check for file search cues
         file_search_pattern = r'\[FILE_SEARCH:([^\]]+)\]'
@@ -125,6 +138,21 @@ class AgentOrchestrator:
         reads = re.findall(read_pattern, content)
         for path in reads:
             cues.append(f"READ:{path}")
+
+        # Check for web read cues
+        web_read_pattern = r'\[READ_URL:([^\]]+)\]'
+        web_reads = re.findall(web_read_pattern, content)
+        for url in web_reads:
+            clean_url = url.strip().strip('"').strip("'")
+            cues.append(f"READ_URL:{clean_url}")
+
+        # Check for sub-research cues (Deep Research)
+        sub_research_pattern = r'\[SUB_RESEARCH:([^\]]+)\]'
+        subs = re.findall(sub_research_pattern, content)
+        for query in subs:
+            # Strip quotes and whitespace
+            clean_query = query.strip().strip('"').strip("'")
+            cues.append(f"SUB_RESEARCH:{clean_query}")
 
         # Check for done cue
         if "[DONE]" in content:
@@ -179,21 +207,10 @@ class AgentOrchestrator:
         """
         Clean up technical cues and placeholders for user-friendly display.
         """
-        # 0. Flatten short code blocks that should have been inline
-        # Matches: ```language\nword\n``` or just ```word```
-        # This fixes agents accidentally using block code for single words/filenames
-        def flatten_code_blocks(match):
-            content = match.group(1).strip()
-            # If it's short, has no spaces, or is just one line
-            if len(content) < 40 and "\n" not in content and " " not in content:
-                return f" `{content}` "
-            return match.group(0) # Keep as is if it's "real" code
-
-        # Updated regex: If there's content after ```, it must be followed by a newline to be a language tag
-        message = re.sub(r'```(?:\w+\n)?\s*(.*?)\s*```', flatten_code_blocks, message, flags=re.DOTALL)
-
-        # 1. Remove file edit/create/delete placeholders (internal ones)
-        message = re.sub(r'\[File (Edit|Create|Delete): [^\]]+\]', '', message)
+        
+        # 1. Remove all internal cues and technical tags
+        message = re.sub(r'\[(?:File (?:Edit|Create|Delete): |SEARCH:|FILE_SEARCH:|READ_FILE:|EDIT_FILE:|CREATE_FILE:|DELETE_FILE:|READ_URL:|SUB_RESEARCH:)[^\]]+\]', '', message)
+        message = message.replace("[DONE]", "")
         
         # 2. Convert agent handoff cues to @ mentions
         cue_to_mention = {
@@ -202,49 +219,46 @@ class AgentOrchestrator:
             r'\[→TESTER\]': '@Unit Tester',
             r'\[→RESEARCH\]': '@Researcher',
         }
-        
         for cue_pattern, mention in cue_to_mention.items():
             message = re.sub(cue_pattern, mention, message)
         
-        # 3. Remove [DONE] tags
-        message = re.sub(r'\[DONE\]', '', message)
+        # 3. Clean up "ghost" artifacts
+        # Attaches punctuation to preceding words (word . -> word.)
+        message = re.sub(r'(\w)\s+([.,!?;:])', r'\1\2', message)
         
-        # 4. Remove technical cues with parameters
-        message = re.sub(r'\[(SEARCH|FILE_SEARCH|READ_FILE|EDIT_FILE|CREATE_FILE|DELETE_FILE):[^\]]+\]', '', message)
+        # Remove trailing colons/whitespace only at the ABSOLUTE END of the message
+        message = re.sub(r'[:\s]+$', '', message)
         
-        # 5. Clean up "ghost" punctuation left by tag removal
-        # Remove trailing ":", " " and extra punctuation at ends of lines where tags were
-        message = re.sub(r'[:\s]+(\n|$)', r'\1', message)
+        # 4. Header Protection Logic for Premium Reports
+        header_map = {
+            "Analysis Summary": "### 🧠 Analysis Summary",
+            "Key Technical Insights": "### 💡 Key Technical Insights",
+            "Recommendations": "### 🎯 Recommendations",
+            "Source Verification": "### 🔗 Source Verification"
+        }
         
-        # Consolidate newlines (max 2)
+        for plain_header, markdown_header in header_map.items():
+            # Match any character followed by the header, fixing missing newlines/markings
+            pattern = r'(?i)([^\n])\s*(?:###\s*)?(?:[🧠💡🎯🔗]\s*)?' + re.escape(plain_header)
+            message = re.sub(pattern, r'\1\n\n' + markdown_header, message)
+            
+            # Ensure correct double newline even if structure is mostly correct
+            correct_pattern = r'([^\n])\n' + re.escape(markdown_header)
+            message = re.sub(correct_pattern, r'\1\n\n' + markdown_header, message)
+        
+        # 5. Fix punctuation spacing around code blocks and inlines
+        # Inline code: Keep but attach (e.g. `code` . -> `code`.)
+        message = re.sub(r'(`)\s*([.,!?;:])', r'\1\2', message)
+        
+        # Block code: Strip trailing punctuation and replace with newline (satisfies legacy tests)
+        # This turns ```...```, into ```\n
+        message = re.sub(r'(```)\s*[.,!?;:]\s*', r'\1\n', message)
+        
+        # 6. Final whitespace normalization
         message = re.sub(r'\n{3,}', '\n\n', message)
-
-        # Fix punctuation starting on a new line (common after tag removal)
-        # This turns:
-        # "Something
-        # . Next" -> "Something. Next"
-        message = re.sub(r'\n\s*([.,!?;])', r'\1', message)
+        message = re.sub(r' {2,}', ' ', message)
         
-        # FIRST: Clean up spaces between closing backticks and punctuation
-        # This handles cases like: "`code` ." -> "`code`."
-        message = re.sub(r'`\s+([.,!?;])', r'`\1', message)
-        
-        # THEN: Fix remaining spaces before punctuation (for normal text)
-        message = re.sub(r'(?<!`)\s+([.,!?;])(?![`])', r'\1', message)
-        
-        # CRITICAL: Strip punctuation immediately after triple-backtick code blocks
-        # Pattern matches: ``` followed by optional whitespace, then punctuation
-        # This prevents orphaned punctuation in the React UI
-        message = re.sub(r'```\s*([.,;!?:])', r'```', message)
-        
-        # Avoid hanging prepositions/conjunctions at ends of lines if they were followed by a tag
-        message = re.sub(r'\b(for|to|at|in|about|of|with|and|the)\s*\n', '\n', message)
-        
-        # 6. Final white-space collapse
-        message = re.sub(r' +', ' ', message)
-        message = message.strip()
-        
-        return message
+        return message.strip()
     
     async def process_message(
         self, 
@@ -508,6 +522,13 @@ class AgentOrchestrator:
                 "concise_message": clean_full_response
             }
             
+            # Detect Synthetic Research Report
+            if "### 🏆 Executive Deep Research Report" in clean_full_response:
+                yield {
+                    "type": "research_report",
+                    "content": clean_full_response
+                }
+            
             # Check for file read cues
             file_read_path = None
             for cue in cues:
@@ -564,6 +585,135 @@ class AgentOrchestrator:
                 # Continue the loop with the same agent
                 continue
 
+            # Check for sub-research cues (Deep Research)
+            sub_research_queries = []
+            for cue in cues:
+                if cue.startswith("SUB_RESEARCH:"):
+                    sub_research_queries.append(cue.split(":", 1)[1])
+
+            if sub_research_queries:
+                # Save the Research Lead's message to conversation FIRST
+                # This ensures the Summarizer knows what was planned
+                lead_msg = Message(
+                    agent=current_agent_name,
+                    content=clean_full_response,
+                    thoughts=full_thoughts,
+                    cues=cues
+                )
+                self.conversation.append(lead_msg)
+                full_context["conversation"].append({
+                    "agent": current_agent_name,
+                    "content": lead_msg.content
+                })
+
+                all_detailed_contents = []
+                
+                for idx, query in enumerate(sub_research_queries):
+                    # Signal deep research starting for this sub-query
+                    status_prefix = f"[{idx+1}/{len(sub_research_queries)}]"
+                    print(f"\n{'='*60}")
+                    print(f"🔬 [DEEP RESEARCH] {status_prefix} Starting: {query}")
+                    print(f"{'='*60}")
+                    
+                    yield {
+                        "type": "agent_status",
+                        "status": f"🔍 Researching: {query}..."
+                    }
+                    
+                    # Get initial search links
+                    search_data = await self.scraper.search_web(query, max_results=5)
+                    
+                    yield {
+                        "type": "research_results",
+                        "results": search_data
+                    }
+
+                    yield {
+                        "type": "agent_status",
+                        "status": f"🌐 {status_prefix} Reading {len(search_data)} sources in parallel..."
+                    }
+
+                    # Parallel fetching of all URLs
+                    async def fetch_item(f_idx, url):
+                        if not url or not url.startswith("http"):
+                            return None
+                        try:
+                            # Use a specific status for each fetch in logs
+                            content = await self.scraper.fetch_page(url)
+                            if content:
+                                return {"url": url, "content": content, "title": search_data[f_idx].get("title", "Unknown")}
+                        except Exception as e:
+                            print(f"❌ [TANDEM] Error fetching {url}: {e}")
+                        return None
+
+                    tasks = [fetch_item(i, res.get("url", "")) for i, res in enumerate(search_data)]
+                    results = await asyncio.gather(*tasks)
+                    
+                    # Filter out failures and add to master list
+                    sub_contents = [r for r in results if r is not None]
+                    all_detailed_contents.extend(sub_contents)
+                    
+                    print(f"✅ [DEEP RESEARCH] {status_prefix} Fetched {len(sub_contents)} pages")
+
+                # Save to temp files and build context
+                attached_files = []
+                os.makedirs(".research", exist_ok=True)
+                
+                for i, res in enumerate(all_detailed_contents):
+                    file_safe_title = "".join(x for x in res['title'] if x.isalnum() or x in " -_")[:30].strip()
+                    filename = f".research/{i+1}_{file_safe_title}.md"
+                    
+                    file_content = f"Source URL: {res['url']}\n\n{res['content']}"
+                    
+                    async with aiofiles.open(filename, 'w', encoding='utf-8') as f:
+                        await f.write(file_content)
+                        
+                    attached_files.append({
+                        "path": filename,
+                        "content": file_content
+                    })
+
+                yield {
+                    "type": "agent_status",
+                    "status": f"🧠 AI Synthesis: Analyzed {len(attached_files)} sources. Generating Executive Report..."
+                }
+
+                # Update the context for all future agents in this turn
+                full_context["attached_files"] = attached_files
+
+                # New message to direct the Summarizer
+                current_message = f"I have gathered extensive research from {len(sub_research_queries)} sub-topics. The raw content from {len(attached_files)} sources is attached as files.\n\nTask: Synthesize everything into a final 🏆 Executive Deep Research Report."
+                
+                # Switch to Summarizer for the final report
+                current_agent_name = "Summarizer"
+                continue
+
+            # Check for web read cues
+            read_url = None
+            for cue in cues:
+                if cue.startswith("READ_URL:"):
+                    read_url = cue.split(":", 1)[1]
+                    break
+                    
+            if read_url:
+                print(f"\n🌐 [READ_URL] Agent requested direct URL read: {read_url}")
+                yield {
+                    "type": "agent_status",
+                    "status": f"Reading page: {read_url}..."
+                }
+                
+                content = await self.scraper.fetch_page(read_url)
+                if content:
+                    print(f"✅ [READ_URL] Successfully extracted {len(content)} chars from {read_url}")
+                    print(f"   📝 Preview: {content[:150].replace(chr(10), ' ')}...")
+                    current_message = f"Extracted content from {read_url}:\n\n{content}\n\nPlease summarize this content for the research report."
+                else:
+                    print(f"❌ [READ_URL] Failed to extract content from {read_url}")
+                    current_message = f"I tried to read {read_url} but couldn't extract any content. The site might be blocking automated access or is currently down."
+                
+                # Continue loop with same agent
+                continue
+
             if search_query:
                 yield {
                     "type": "agent_status",
@@ -612,6 +762,15 @@ class AgentOrchestrator:
             # Check for done
             if "DONE" in cues:
                 self.mission_status = "IDLE" # Mark mission as complete
+                
+                # Cleanup research files
+                if os.path.exists(".research"):
+                    try:
+                        shutil.rmtree(".research")
+                        print("🧹 Cleanup: Removed temporary .research/ directory")
+                    except Exception as e:
+                        print(f"⚠️ Cleanup failed: {e}")
+
                 yield {
                     "type": "agent_done",
                     "agent": current_agent_name,
@@ -697,3 +856,42 @@ class AgentOrchestrator:
         self.conversation = []
         self.last_handoff = None
         return {"status": "cleared"}
+
+    async def do_research(self, query: str) -> AsyncGenerator[Dict, None]:
+        """
+        Dedicated deep research flow.
+        Routes query directly to Research Lead who coordinates the tandem agents.
+        """
+        print(f"\n{'='*60}")
+        print(f"🔬 [DO_RESEARCH] Starting dedicated research flow for: {query}")
+        print(f"{'='*60}")
+        
+        # Ensure initialized
+        if not self.initialized:
+            await self.initialize()
+        
+        yield {
+            "type": "agent_status",
+            "status": f"🔬 Initializing deep research: {query}"
+        }
+        
+        # Route directly to Research Lead with the research request
+        research_message = (
+            f"The user has requested a deep research mission:\n\n"
+            f"**Research Topic**: {query}\n\n"
+            f"Please break this down into 2-3 specific sub-questions using [SUB_RESEARCH: \"query\"] cues. "
+            f"After gathering information from all sources, synthesize your findings into an "
+            f"Executive Deep Research Report.\n\n"
+            f"Remember:\n"
+            f"- Use [SUB_RESEARCH: \"query\"] to search and automatically scrape full page content\n"
+            f"- Use [READ_URL: \"url\"] to read specific pages you want to dive deeper into\n"
+            f"- Cross-reference sources and look for contradictions\n"
+            f"- End with [DONE] when the report is complete"
+        )
+
+        # Use the streaming message processor with Research Lead as initial agent
+        async for event in self.process_message_stream(
+            message=research_message,
+            initial_agent="Research Lead"
+        ):
+            yield event

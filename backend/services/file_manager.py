@@ -74,10 +74,16 @@ class FileManager:
     
     def _sanitize_path(self, path: str) -> Path:
         """Sanitize and validate file path"""
+        if path is None:
+            raise ValueError("Path argument cannot be None")
+
         # If no workspace is active, we save to the projects root
-        # This allows uploading NEW projects while in a detached state
         is_detached = self.workspace_path is None
         active_root = self.workspace_path if not is_detached else self.projects_root
+        
+        if active_root is None:
+            # Absolute fallback
+            active_root = self.projects_root
 
         # Remove leading slashes and normalize
         clean_path = path.lstrip("/\\").replace("\\", "/")
