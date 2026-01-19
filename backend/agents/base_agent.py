@@ -10,7 +10,8 @@ from abc import ABC, abstractmethod
 from typing import AsyncGenerator, Optional, Dict, Any
 from pathlib import Path
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from openai import AsyncOpenAI
 
 
@@ -47,8 +48,8 @@ class BaseAgent(ABC):
         # Initialize provider
         if provider == "gemini":
             self.model = model or "gemini-3-flash-preview"
-            genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-            self.client = genai.GenerativeModel(self.model)
+            # New SDK initialization
+            self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
         elif provider == "deepseek":
             self.model = model or "deepseek-chat"
             self.client = AsyncOpenAI(
@@ -59,7 +60,10 @@ class BaseAgent(ABC):
             raise ValueError(f"Unknown provider: {provider}")
         
         # Load system prompt
-        self.system_prompt = self._load_prompt()
+        base_prompt = self._load_prompt()
+        import datetime
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.system_prompt = f"## Environmental Context\n- Current Date/Time: {now}\n\n{base_prompt}"
     
     def _load_prompt(self) -> str:
         """Load the system prompt from prompts folder"""
@@ -121,7 +125,9 @@ class BaseAgent(ABC):
                         end_tag = "</think>"
                         if end_tag in buffer:
                             # Found end of thought
-                            thought_content, remainder = buffer.split(end_tag, 1)
+                            parts = buffer.split(end_tag, 1)
+                            thought_content = parts[0]
+                            remainder = parts[1]
                             if thought_content:
                                 yield {"type": "thought", "content": thought_content, "agent": self.name}
                             in_thought = False
@@ -140,25 +146,24 @@ class BaseAgent(ABC):
                         start_tag = "<think>"
                         if start_tag in buffer:
                             # Found start of thought
-                            msg_content, remainder = buffer.split(start_tag, 1)
+                            parts = buffer.split(start_tag, 1)
+                            msg_content = parts[0]
+                            remainder = parts[1]
                             if msg_content:
                                 full_message_accumulated += msg_content
                                 yield {"type": "message", "content": msg_content, "agent": self.name}
                             
                             in_thought = True
                             buffer = remainder
-                            # Signal thought start (optional, frontend handles thought type)
+                            # Signal thought start
                             yield {"type": "thought", "content": "", "agent": self.name}
                             continue
                         else:
                             # Check for partial start tag at end of buffer
-                            # We only hold back if the buffer ends with a prefix of <think>
-                            # Optimization: check if buffer has '<'
                             if '<' in buffer:
                                 last_lt = buffer.rfind('<')
                                 possible_tag = buffer[last_lt:]
                                 if start_tag.startswith(possible_tag):
-                                    # Safe to yield up to the partial tag
                                     to_yield = buffer[:last_lt]
                                     if to_yield:
                                         full_message_accumulated += to_yield
@@ -166,9 +171,6 @@ class BaseAgent(ABC):
                                     buffer = possible_tag
                                     break
                                 else:
-                                    # It's a '<' but not for us (e.g. <b> or code)
-                                    # Wait, what if it's <think ... >? No, we look for exact <think>
-                                    # Yield everything
                                     full_message_accumulated += buffer
                                     yield {"type": "message", "content": buffer, "agent": self.name}
                                     buffer = ""
@@ -245,17 +247,25 @@ class BaseAgent(ABC):
         return "".join(parts)
     
     async def _stream_gemini(self, prompt: str) -> AsyncGenerator[str, None]:
-        """Stream response from Gemini"""
-        response = await asyncio.to_thread(
-            lambda: self.client.generate_content(
-                prompt,
-                stream=True,
-                generation_config=genai.types.GenerationConfig(
+        """Stream response from Gemini using new SDK"""
+        # New SDK uses async natively or sync with thread. genai.Client has .models.generate_content_stream
+        # We'll use the async version if available, or just use the sync one via to_thread for simplicity if unsure about event loop
+        
+        # New SDK call:
+        # response = client.models.generate_content_stream(model=model, contents=prompt, config=...)
+        
+        def get_stream():
+            return self.client.models.generate_content_stream(
+                model=self.model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=self.system_prompt,
                     temperature=0.7,
                     max_output_tokens=4096
                 )
             )
-        )
+
+        response = await asyncio.to_thread(get_stream)
         
         for chunk in response:
             if chunk.text:
@@ -277,16 +287,28 @@ class BaseAgent(ABC):
         )
         
         async for chunk in stream:
-            if chunk.choices[0].delta.content:
+            if hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
+            
+            if hasattr(chunk.choices[0].delta, 'reasoning_content') and chunk.choices[0].delta.reasoning_content:
+                reasoning = chunk.choices[0].delta.reasoning_content
+                yield f"<think>{reasoning}</think>"
     
     async def generate(self, message: str, context: dict = None) -> str:
-        """Non-streaming generation - returns full response"""
+        """Non-streaming generation using mixed SDKs"""
         full_prompt = self._build_prompt(message, context)
         
         if self.provider == "gemini":
             response = await asyncio.to_thread(
-                lambda: self.client.generate_content(full_prompt)
+                lambda: self.client.models.generate_content(
+                    model=self.model,
+                    contents=full_prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=self.system_prompt,
+                        temperature=0.7,
+                        max_output_tokens=4096
+                    )
+                )
             )
             return response.text
             

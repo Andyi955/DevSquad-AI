@@ -307,7 +307,7 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
 
     if (pendingChanges.length === 0 && (!approvedChanges || approvedChanges.length === 0)) {
         return (
-            <div className="research-panel">
+            <div className="research-panel" style={{ height: '100%' }}>
                 <div style={{
                     display: 'flex',
                     flexDirection: 'column',
@@ -319,8 +319,8 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
                     padding: '20px'
                 }}>
                     <div style={{ fontSize: '3rem', marginBottom: '16px' }}>✨</div>
-                    <h3>No Pending Changes</h3>
-                    <p>Agent edits will appear here for your review.</p>
+                    <h3 style={{ margin: '0 0 8px 0', color: 'var(--text-primary)' }}>No Pending Changes</h3>
+                    <p style={{ margin: 0, fontSize: '0.9rem' }}>Agent edits will appear here for your review.</p>
                 </div>
             </div>
         );
@@ -444,9 +444,8 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
                         justifyContent: 'center',
                         color: 'var(--text-muted)',
                         textAlign: 'center',
+                        height: '100%',
                         padding: '40px 20px',
-                        border: '1px dashed var(--border-color)',
-                        borderRadius: 'var(--radius-md)'
                     }}>
                         <div style={{ fontSize: '2rem', marginBottom: '8px' }}>✨</div>
                         <p>No changes to review</p>

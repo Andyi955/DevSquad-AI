@@ -15,6 +15,7 @@ const AGENTS = {
     'Junior Dev': { emoji: '🐣', color: 'var(--neon-green)', class: 'junior' },
     'Unit Tester': { emoji: '🧪', color: 'var(--neon-amber)', class: 'tester' },
     'Researcher': { emoji: '🔍', color: 'var(--neon-cyan)', class: 'researcher' },
+    'Research Lead': { emoji: '🏗️', color: '#ec4899', class: 'lead' },
     'User': { emoji: '👤', color: 'var(--text-primary)', class: 'user' }
 }
 

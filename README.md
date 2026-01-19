@@ -8,6 +8,9 @@ A fun, interactive web application where AI agents (DeepSeek & Gemini) collabora
   <img src="docs/images/dashboard1.png" alt="Main Interface" width="800">
   <br><i>Main chat interface with real-time streaming and neon theme</i>
   <br><br>
+  <img src="docs/images/research_demo.gif" alt="Deep Research Demo" width="800">
+  <br><i>Tandem agents performing parallel search and synthesis</i>
+  <br><br>
   <img src="docs/images/dashboard2.png" alt="File Management" width="800">
   <br><i>Advanced workspace management and Safe Switch project switching</i>
 </div>
@@ -69,9 +72,19 @@ pip install -r requirements.txt
 # Install Playwright browsers (for web research)
 playwright install chromium
 
-# Start the server
-uvicorn main:app --reload --port 8000
+# Start the server (Hypercorn recommended for Windows/Playwright stability)
+hypercorn main:app --bind 0.0.0.0:8000 --reload
 ```
+
+---
+
+## 🔬 Dedicated Deep Research Agent
+
+The Research framework uses a **Tandem Architecture** for maximum depth and speed:
+
+1.  **Lead Architect (Gemini 3 Flash)**: Orchestrates the mission, performs high-speed web searches, and scrapes multiple sources in parallel.
+2.  **Synthesis Engine (DeepSeek V3)**: Analyzes the gathered raw data and synthesizes it into a high-impact Executive Report.
+
 
 ### 3. Frontend Setup
 

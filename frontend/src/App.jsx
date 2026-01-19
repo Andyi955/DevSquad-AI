@@ -8,6 +8,7 @@ import AgentChat from './components/AgentChat/AgentChat'
 import ResearchPanel from './components/ResearchPanel/ResearchPanel'
 import ChangesPanel from './components/ChangesPanel/ChangesPanel'
 import ApprovalModal from './components/ApprovalModal/ApprovalModal'
+import DeepResearchView from './components/ResearchPanel/DeepResearchView'
 
 // Hooks
 import { useWebSocket } from './hooks/useWebSocket'
@@ -29,10 +30,14 @@ function App() {
   const [isStopped, setIsStopped] = useState(false)
   const [toasts, setToasts] = useState([])
   const [attachedFiles, setAttachedFiles] = useState([])
-  const [rightPanelTab, setRightPanelTab] = useState('research')
+  const [rightPanelTab, setRightPanelTab] = useState('changes') // research or changes
   const [isChangesFullScreen, setIsChangesFullScreen] = useState(false)
   const [workspacePath, setWorkspacePath] = useState(null) // Absolute path to current workspace
   const [activeProject, setActiveProject] = useState(null) // Currently active project (subfolder)
+  const [mainTab, setMainTab] = useState('chat') // chat or deep-research
+  const [isDeepResearching, setIsDeepResearching] = useState(false)
+  const [currentResearchStatus, setCurrentResearchStatus] = useState('')
+  const [researchReport, setResearchReport] = useState(null)
 
   // Handle incoming WebSocket messages
   const handleMessage = useCallback((data) => {
@@ -126,14 +131,40 @@ function App() {
         }
         break
 
+      case 'agent_status':
+        // Update research status if we are researching
+        const statusLower = data.status?.toLowerCase() || '';
+        if (statusLower.includes('research') || statusLower.includes('search') || statusLower.includes('synthesis') || statusLower.includes('analyz')) {
+          setCurrentResearchStatus(data.status)
+          setIsDeepResearching(true)
+          // Optionally switch to research tab automatically
+          if (mainTab !== 'deep-research') setMainTab('deep-research')
+        }
+
+        // Still add to messages for the log
+        setMessages(prev => [...prev, {
+          id: Date.now(),
+          type: 'agent_status',
+          status: data.status,
+          agent: data.agent,
+          timestamp: new Date()
+        }])
+        break
+
+      case 'research_report':
+        setResearchReport(data.content)
+        break
+
       case 'research_results':
-        setResearchResults(data.results || [])
+        setResearchResults(data.results)
+        // Keep researching for synthesis
         break
 
       case 'agent_done':
       case 'complete':
         setIsTyping(false)
         setCurrentAgent(null)
+        setIsDeepResearching(false) // Stop research overlay when finished
         if (data.message && data.message.includes('stopped')) {
           setIsStopped(true)
         }
@@ -151,15 +182,6 @@ function App() {
           return updated
         })
         fetchUsage()
-        break
-
-      case 'agent_status':
-        setMessages(prev => [...prev, {
-          id: Date.now(),
-          type: 'agent_status',
-          status: data.status,
-          timestamp: new Date()
-        }])
         break
 
       case 'error':
@@ -620,6 +642,7 @@ function App() {
       setPendingChanges([])
       setApprovedChanges([])
       setResearchResults([])
+      setResearchReport(null)
       setAttachedFiles([])
       setIsTyping(false)
       setCurrentAgent(null)
@@ -696,20 +719,39 @@ function App() {
     showToast(`Approved all ${changesToApprove.length} changes!`, '✅')
   }
 
-  const doResearch = async (query) => {
-    try {
-      const res = await fetch(`${API_URL}/research`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
-      })
-      const data = await res.json()
-      setResearchResults(data.search_results || [])
-      return data
-    } catch (err) {
-      console.error('Research failed:', err)
+  const doResearch = useCallback((query) => {
+    if (!isConnected || !query.trim()) {
+      console.log('❌ [App] Cannot start research - not connected or empty query')
+      return
     }
-  }
+
+    console.log('🔬 [App] Starting deep research via WebSocket:', query)
+
+    // Reset previous results
+    setResearchResults([])
+    setResearchReport(null)
+    setIsDeepResearching(true)
+    setCurrentResearchStatus('Initializing deep research...')
+
+    // Add user message to chat
+    setMessages(prev => [
+      ...prev.map(m => ({ ...m, complete: true })),
+      {
+        id: Date.now(),
+        agent: 'User',
+        content: `🔬 Deep Research: ${query}`,
+        isUser: true,
+        timestamp: new Date(),
+        complete: true
+      }
+    ])
+
+    // Send via WebSocket - this triggers orchestrator.do_research()
+    wsSend({
+      type: 'research',
+      query: query.trim()
+    })
+  }, [isConnected, wsSend])
 
   return (
     <div className="app-container">
@@ -719,103 +761,75 @@ function App() {
         onNewChat={handleNewChat}
       />
 
-      <Sidebar
-        files={fileTree}
-        selectedFile={selectedFile}
-        onSelectFile={setSelectedFile}
-        onUpload={uploadFiles}
-        onAttachFiles={attachFiles}
-        onClearWorkspace={clearWorkspace}
-        onCreateFile={createFile}
-        onCreateFolder={createFolder}
-        onUploadToPath={uploadToPath}
-        onMoveItem={moveItem}
-        onRenameItem={renameItem}
-        onOpenFolder={openFolder}
-        workspacePath={workspacePath}
-      />
-
-      <main className="main-content">
-        <AgentChat
-          messages={messages}
-          isTyping={isTyping}
-          currentAgent={currentAgent}
-          onSendMessage={sendChatMessage}
-          isConnected={isConnected}
-          onStop={stopAgent}
-          isStopped={isStopped}
-          attachedFiles={attachedFiles}
+      <div className="workspace-layout">
+        <Sidebar
+          files={fileTree}
+          selectedFile={selectedFile}
+          onSelectFile={setSelectedFile}
+          onUpload={uploadFiles}
           onAttachFiles={attachFiles}
-          onRemoveFile={removeAttachedFile}
-          onShowChanges={() => setRightPanelTab('changes')}
+          onClearWorkspace={clearWorkspace}
+          onCreateFile={createFile}
+          onCreateFolder={createFolder}
+          onUploadToPath={uploadToPath}
+          onMoveItem={moveItem}
+          onRenameItem={renameItem}
+          onOpenFolder={openFolder}
+          workspacePath={workspacePath}
         />
-      </main>
 
-      <aside className="research-panel-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', borderLeft: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
-        <div className="panel-tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border-color)' }}>
-          <button
-            className={`panel-tab ${rightPanelTab === 'research' ? 'active' : ''}`}
-            onClick={() => setRightPanelTab('research')}
-            style={{
-              flex: 1,
-              padding: '12px',
-              background: rightPanelTab === 'research' ? 'rgba(6, 182, 212, 0.1)' : 'transparent',
-              color: rightPanelTab === 'research' ? 'var(--neon-cyan)' : 'var(--text-muted)',
-              border: 'none',
-              borderBottom: rightPanelTab === 'research' ? '2px solid var(--neon-cyan)' : 'none',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '0.75rem',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em'
-            }}
-          >
-            🔍 Research
-          </button>
-          <button
-            className={`panel-tab ${rightPanelTab === 'changes' ? 'active' : ''}`}
-            onClick={() => setRightPanelTab('changes')}
-            style={{
-              flex: 1,
-              padding: '12px',
-              background: rightPanelTab === 'changes' ? 'rgba(147, 51, 234, 0.1)' : 'transparent',
-              color: rightPanelTab === 'changes' ? 'var(--neon-purple)' : 'var(--text-muted)',
-              border: 'none',
-              borderBottom: rightPanelTab === 'changes' ? '2px solid var(--neon-purple)' : 'none',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '0.75rem',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-              position: 'relative'
-            }}
-          >
-            ⚡ Changes
-            {pendingChanges.length > 0 && (
-              <span style={{
-                position: 'absolute',
-                top: '6px',
-                right: '12px',
-                background: 'var(--neon-purple)',
-                color: 'white',
-                fontSize: '0.65rem',
-                padding: '1px 5px',
-                borderRadius: '10px',
-                boxShadow: '0 0 5px var(--neon-purple)'
-              }}>
-                {pendingChanges.length}
-              </span>
+        <main className="main-content">
+          <div className="main-tabs">
+            <button
+              className={`main-tab-btn chat ${mainTab === 'chat' ? 'active' : ''}`}
+              onClick={() => setMainTab('chat')}
+            >
+              💬 CO-DEV CHAT
+            </button>
+            <button
+              className={`main-tab-btn research ${mainTab === 'deep-research' ? 'active' : ''}`}
+              onClick={() => setMainTab('deep-research')}
+            >
+              🕵️‍♂️ DEEP RESEARCH
+              {isDeepResearching && <span className="pulse-dot active"></span>}
+            </button>
+          </div>
+
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {mainTab === 'chat' ? (
+              <AgentChat
+                messages={messages}
+                isTyping={isTyping}
+                currentAgent={currentAgent}
+                onSendMessage={sendChatMessage}
+                isConnected={isConnected}
+                onStop={stopAgent}
+                isStopped={isStopped}
+                attachedFiles={attachedFiles}
+                onAttachFiles={attachFiles}
+                onRemoveFile={removeAttachedFile}
+                onShowChanges={() => setRightPanelTab('changes')}
+              />
+            ) : (
+              <DeepResearchView
+                results={researchResults}
+                isResearching={isDeepResearching}
+                currentStatus={currentResearchStatus}
+                report={researchReport}
+                onSearch={doResearch}
+              />
             )}
-          </button>
-        </div>
+          </div>
+        </main>
 
-        <div style={{ flex: 1, overflow: 'hidden' }}>
-          {rightPanelTab === 'research' ? (
-            <ResearchPanel
-              results={researchResults}
-              onSearch={doResearch}
-            />
-          ) : (
+        <aside className="research-panel-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', borderLeft: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
+          <div className="panel-tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', height: '48px', alignItems: 'center', padding: '0 12px' }}>
+            <h3 style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              🛠️ Development Tools
+            </h3>
+          </div>
+
+          <div style={{ flex: 1, overflow: 'hidden' }}>
             <ChangesPanel
               pendingChanges={pendingChanges}
               approvedChanges={approvedChanges}
@@ -825,9 +839,9 @@ function App() {
               isFullScreen={false}
               onToggleFullScreen={() => setIsChangesFullScreen(true)}
             />
-          )}
-        </div>
-      </aside>
+          </div>
+        </aside>
+      </div>
 
       {activeChange && (
         <ApprovalModal

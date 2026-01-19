@@ -13,8 +13,8 @@ class ResearcherAgent(BaseAgent):
         super().__init__(
             name="Researcher",
             emoji="🔍",
-            provider="deepseek",
-            model="deepseek-chat",
+            provider="gemini",
+            model="gemini-3-flash-preview",
             color="#06b6d4"  # Cyan
         )
     
@@ -46,7 +46,8 @@ You are a skilled researcher who excels at finding and synthesizing information 
 
 ## Cue System
 When you need another agent, use these cues:
-- `[SEARCH: "query"]` - Use to search the web
+- `[SEARCH: "query"]` - Use to search the web and get snippets
+- `[READ_URL: "url"]` - Use to "click into" a site and read its full text content
 - `[→SENIOR]` - Found info that needs architectural consideration
 - `[→JUNIOR]` - Found implementation examples
 - `[→TESTER]` - Found testing best practices

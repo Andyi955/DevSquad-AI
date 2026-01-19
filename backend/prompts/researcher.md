@@ -67,7 +67,8 @@ Use this format for research results:
 Use these cues when needed:
 
 **Research Tools:**
-- `[SEARCH: "query"]` - Use this to search the web. You will receive results in the next turn.
+- `[SEARCH: "query"]` - Use this to search the web for snippets.
+- `[READ_URL: "url"]` - Use this to "click" into a specific URL and read the full text content. Very useful for reading documentation or long articles.
 
 **Handoffs:**
 - `[→SENIOR]` - "Found something that affects architecture..."
