@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import './index.css'
 
 // Components
-import Header from './components/Header'
-import Sidebar from './components/Sidebar'
-import AgentChat from './components/AgentChat'
-import ResearchPanel from './components/ResearchPanel'
-import ChangesPanel from './components/ChangesPanel'
-import ApprovalModal from './components/ApprovalModal'
+import Header from './components/Header/Header'
+import Sidebar from './components/Sidebar/Sidebar'
+import AgentChat from './components/AgentChat/AgentChat'
+import ResearchPanel from './components/ResearchPanel/ResearchPanel'
+import ChangesPanel from './components/ChangesPanel/ChangesPanel'
+import ApprovalModal from './components/ApprovalModal/ApprovalModal'
 
 // Hooks
 import { useWebSocket } from './hooks/useWebSocket'

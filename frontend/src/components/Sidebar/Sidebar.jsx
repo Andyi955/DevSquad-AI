@@ -5,7 +5,8 @@
  */
 
 import { useState, useRef } from 'react'
-import FileTree from './FileTree'
+import './Sidebar.css'
+import FileTree from '../FileTree/FileTree'
 
 function Sidebar({ files, selectedFile, onSelectFile, onUpload, onAttachFiles, onClearWorkspace, onCreateFile, onCreateFolder, onUploadToPath, onMoveItem, onRenameItem, onOpenFolder, workspacePath }) {
     const [isDragOver, setIsDragOver] = useState(false)

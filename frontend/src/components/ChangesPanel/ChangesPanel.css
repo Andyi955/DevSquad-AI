@@ -1,0 +1,68 @@
+.diff-view-container {
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    height: 100%;
+    overflow: auto;
+}
+
+/* Override react-diff-viewer styles to match theme */
+.diff-view-container table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: var(--font-mono);
+    table-layout: fixed;
+}
+
+.diff-view-container td {
+    vertical-align: top;
+    padding: 0;
+}
+
+.diff-view-container td.diff-gutter {
+    user-select: none;
+    min-width: 30px !important;
+    width: 30px !important;
+    text-align: right;
+    padding: 0 4px !important;
+    font-size: 0.7em;
+    opacity: 0.5;
+}
+
+.diff-view-container td.diff-marker {
+    width: 16px !important;
+    padding: 0 !important;
+    text-align: center;
+    font-weight: bold;
+}
+
+.diff-view-container td.diff-content {
+    padding-left: 8px !important;
+}
+
+.diff-summary-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-elevated);
+    padding: 4px 12px;
+    border-radius: var(--radius-full);
+    margin-top: 8px;
+    border: 1px solid var(--border-color);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+}
+
+.diff-summary-chip .add {
+    color: var(--neon-green);
+    font-weight: 600;
+}
+
+.diff-summary-chip .remove {
+    color: #ef4444;
+    font-weight: 600;
+}
+
+.diff-summary-chip .file-path {
+    color: var(--text-muted);
+    border-left: 1px solid var(--border-color);
+    padding-left: 8px;
+}

@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react'
+import './ResearchPanel.css'
 
 function ResearchPanel({ results, onSearch }) {
     const [query, setQuery] = useState('')

@@ -1,0 +1,86 @@
+.file-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.file-tree-node {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: all 0.15s ease;
+    user-select: none;
+    font-size: 0.85rem;
+    position: relative;
+}
+
+.file-tree-node:hover {
+    background: var(--glass-bg);
+    color: var(--text-primary);
+}
+
+.file-tree-node.active {
+    background: rgba(147, 51, 234, 0.15);
+    color: var(--neon-purple);
+    border-right: 2px solid var(--neon-purple);
+}
+
+.file-tree-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    font-size: 0.6rem;
+    transition: transform 0.2s ease;
+    opacity: 0.7;
+}
+
+.file-tree-arrow:hover {
+    opacity: 1;
+    color: var(--neon-purple);
+}
+
+.file-tree-arrow.open {
+    transform: rotate(90deg);
+}
+
+.node-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.rename-btn,
+.attach-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    opacity: 0;
+    transition: opacity 0.2s, transform 0.2s;
+    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+}
+
+.file-tree-node:hover .rename-btn,
+.file-tree-node:hover .attach-btn {
+    opacity: 1;
+}
+
+.rename-btn:hover,
+.attach-btn:hover {
+    color: var(--neon-purple);
+    transform: scale(1.2);
+}
+
+.attach-btn:hover {
+    color: var(--neon-cyan);
+}

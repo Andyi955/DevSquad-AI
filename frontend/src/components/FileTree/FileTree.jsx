@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react'
+import './FileTree.css'
 
 // Helper to get icon based on extension
 const getFileIcon = (name) => {
