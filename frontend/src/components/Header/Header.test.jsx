@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
 import Header from './Header';
 
 describe('Header Component', () => {
@@ -27,5 +27,15 @@ describe('Header Component', () => {
         };
         render(<Header isConnected={true} usage={usage} />);
         expect(screen.getByText('10 / 100')).toBeInTheDocument();
+    });
+
+    it('calls onNewChat when "+ New Chat" button is clicked', () => {
+        const onNewChat = vi.fn();
+        render(<Header isConnected={true} onNewChat={onNewChat} />);
+
+        const button = screen.getByText('+ New Chat');
+        fireEvent.click(button);
+
+        expect(onNewChat).toHaveBeenCalledTimes(1);
     });
 });
