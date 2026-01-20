@@ -83,11 +83,22 @@ async def websocket_endpoint(websocket: WebSocket):
     
     app.state.connections.append(websocket)
     
+    active_stream_task = None
+
     try:
         while True:
             data = await websocket.receive_text()
             message_data = json.loads(data)
             
+            # Handle stop signal
+            if message_data.get("type") == "stop":
+                print("🛑 Stop signal received from UI")
+                orchestrator.stop()
+                if active_stream_task and not active_stream_task.done():
+                    print("🔪 Cancelling active stream task")
+                    active_stream_task.cancel()
+                continue
+
             # Handle manual research triggers from UI
             if message_data.get("type") == "research":
                 query = message_data.get("query")
@@ -98,14 +109,48 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             # Handle normal agent flow
-            content = message_data.get("content", "")
-            attached_files = message_data.get("files", [])
+            content = message_data.get("message") or message_data.get("content", "")
+            context = message_data.get("context", {})
             
-            # Create context with attached files
-            context = {"attached_files": attached_files} if attached_files else {}
-            
-            async for event in orchestrator.process_message_stream(content, context):
-                await websocket.send_text(json.dumps(event))
+            # Handle approval signals from UI
+            if message_data.get("type") == "approval_done":
+                approved = message_data.get("approved", True)
+                feedback = message_data.get("feedback")
+                result = await orchestrator.handle_approval_signal(approved, feedback)
+                
+                if result.get("next_agent"):
+                    # Define the task to run the stream
+                    async def stream_task():
+                        try:
+                            async for event in orchestrator.process_message_stream(
+                                result["message"], 
+                                context, 
+                                initial_agent=result["next_agent"]
+                            ):
+                                await websocket.send_text(json.dumps(event))
+                        except asyncio.CancelledError:
+                            print("🧱 Stream task cancelled via approval flow")
+                        except Exception as e:
+                            print(f"❌ Stream task error: {e}")
+
+                    active_stream_task = asyncio.create_task(stream_task())
+                continue
+
+            if not content:
+                print("⚠️ Received empty message, skipping process.")
+                continue
+                
+            # Run the main process_message_stream in a task
+            async def main_stream():
+                try:
+                    async for event in orchestrator.process_message_stream(content, context):
+                        await websocket.send_text(json.dumps(event))
+                except asyncio.CancelledError:
+                    print("🧱 Main stream task cancelled")
+                except Exception as e:
+                    print(f"❌ Main stream task error: {e}")
+
+            active_stream_task = asyncio.create_task(main_stream())
                 
     except WebSocketDisconnect:
         app.state.connections.remove(websocket)
@@ -156,6 +201,33 @@ async def initiate_research(data: dict):
 async def get_usage():
     """Get API usage statistics"""
     return usage_tracker.get_summary()
+
+@app.get("/select-folder")
+async def select_folder():
+    """Open a native folder picker and return the selected path"""
+    def _open_picker():
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes('-topmost', True)
+            root.lift()
+            root.focus_force()
+            path = filedialog.askdirectory(title="Select Project Folder")
+            root.destroy()
+            return path
+        except Exception as e:
+            print(f"❌ Error in folder picker: {e}")
+            return None
+
+    import asyncio
+    selected_path = await asyncio.to_thread(_open_picker)
+    
+    if not selected_path:
+        return {"cancelled": True}
+        
+    return {"path": selected_path}
 
 @app.post("/set-workspace")
 async def set_workspace(data: dict):
@@ -245,23 +317,30 @@ async def read_file(path: str):
 async def get_pending_changes():
     return file_manager.get_pending_changes()
 
-@app.post("/approve/{change_id}")
-async def approve_change(change_id: str):
+@app.post("/approve")
+async def approve_change(data: dict):
+    """Approve a file change via JSON body"""
+    change_id = data.get("change_id")
+    if not change_id:
+        raise HTTPException(status_code=400, detail="change_id is required")
+        
     result = await file_manager.apply_change(change_id)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     
-    # Check if this change finished a mission
-    await orchestrator.handle_approval_signal(approved=True)
     return result
 
-@app.post("/reject/{change_id}")
-async def reject_change(change_id: str):
+@app.post("/reject")
+async def reject_change(data: dict):
+    """Reject a file change via JSON body"""
+    change_id = data.get("change_id")
+    if not change_id:
+        raise HTTPException(status_code=400, detail="change_id is required")
+        
     result = file_manager.reject_change(change_id)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     
-    await orchestrator.handle_approval_signal(approved=False)
     return result
 
 @app.get("/health")

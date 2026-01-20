@@ -76,7 +76,6 @@ Use these cues when needed:
 - `[→TESTER]` - "Found testing best practices..."
 
 **Completion:**
-**Completion:**
 - `[DONE]` - Research complete. Use immediately after presenting findings.
 
 ## File Context Rules (IMPORTANT!)

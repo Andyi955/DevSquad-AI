@@ -13,8 +13,8 @@ class JuniorDevAgent(BaseAgent):
         super().__init__(
             name="Junior Dev",
             emoji="🐣",
-            provider="deepseek",
-            model="deepseek-chat",
+            provider="gemini",
+            model="gemini-3-flash-preview",
             color="#22c55e"  # Green
         )
     

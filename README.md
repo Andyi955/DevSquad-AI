@@ -22,6 +22,11 @@ A fun, interactive web application where AI agents (DeepSeek & Gemini) collabora
 - **🧪 Unit Tester** (Gemini) - Test coverage, edge cases, quality
 - **🔍 Researcher** (DeepSeek) - Web searches, documentation, latest news
 
+#### 🔬 Dedicated Deep Research
+The Research framework uses a **Tandem Architecture** for maximum depth and speed:
+1.  **Lead Architect (Gemini 3 Flash)**: Orchestrates the mission, performs high-speed web searches, and scrapes multiple sources in parallel.
+2.  **Synthesis Engine (DeepSeek V3)**: Analyzes the gathered raw data and synthesizes it into a high-impact Executive Report.
+
 ### Highlights
 - 🎬 **Real-time streaming** - Watch agents think and respond live
 - 💭 **Thought bubbles** - See agent reasoning (collapsible)
@@ -77,13 +82,6 @@ hypercorn main:app --bind 0.0.0.0:8000 --reload
 ```
 
 ---
-
-## 🔬 Dedicated Deep Research Agent
-
-The Research framework uses a **Tandem Architecture** for maximum depth and speed:
-
-1.  **Lead Architect (Gemini 3 Flash)**: Orchestrates the mission, performs high-speed web searches, and scrapes multiple sources in parallel.
-2.  **Synthesis Engine (DeepSeek V3)**: Analyzes the gathered raw data and synthesizes it into a high-impact Executive Report.
 
 
 ### 3. Frontend Setup

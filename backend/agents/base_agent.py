@@ -45,17 +45,19 @@ class BaseAgent(ABC):
         self.model = model
         self.conversation_history = []
         
-        # Initialize provider
+        # Always initialize BOTH clients for Hybrid DeepThink
+        self.gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        self.openai_client = AsyncOpenAI(
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            base_url="https://api.deepseek.com"
+        )
+        
         if provider == "gemini":
             self.model = model or "gemini-3-flash-preview"
-            # New SDK initialization
-            self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+            self.client = self.gemini_client
         elif provider == "deepseek":
             self.model = model or "deepseek-chat"
-            self.client = AsyncOpenAI(
-                api_key=os.getenv("DEEPSEEK_API_KEY"),
-                base_url="https://api.deepseek.com"
-            )
+            self.client = self.openai_client
         else:
             raise ValueError(f"Unknown provider: {provider}")
         
@@ -199,8 +201,8 @@ class BaseAgent(ABC):
             yield {"type": "error", "content": str(e), "agent": self.name}
 
     def _build_prompt(self, message: str, context: dict = None) -> str:
-        """Build full prompt with system prompt and context"""
-        parts = [self.system_prompt, "\n\n"]
+        """Build full prompt with context and history (system prompt is separate)"""
+        parts = []
         
         if context:
             if "files" in context:
@@ -247,15 +249,10 @@ class BaseAgent(ABC):
         return "".join(parts)
     
     async def _stream_gemini(self, prompt: str) -> AsyncGenerator[str, None]:
-        """Stream response from Gemini using new SDK"""
-        # New SDK uses async natively or sync with thread. genai.Client has .models.generate_content_stream
-        # We'll use the async version if available, or just use the sync one via to_thread for simplicity if unsure about event loop
-        
-        # New SDK call:
-        # response = client.models.generate_content_stream(model=model, contents=prompt, config=...)
-        
-        def get_stream():
-            return self.client.models.generate_content_stream(
+        """Stream response from Gemini using new SDK with async support"""
+        try:
+            # The new SDK has an 'aio' attribute for async operations
+            stream = await self.client.aio.models.generate_content_stream(
                 model=self.model,
                 contents=prompt,
                 config=types.GenerateContentConfig(
@@ -264,12 +261,28 @@ class BaseAgent(ABC):
                     max_output_tokens=4096
                 )
             )
+            
+            async for chunk in stream:
+                if chunk.text:
+                    yield chunk.text
+        except AttributeError:
+            # Fallback if aio is not available or differently structured
+            print("⚠️ Falling back to sync Gemini stream (aio not found)")
+            def get_stream():
+                return self.client.models.generate_content_stream(
+                    model=self.model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=self.system_prompt,
+                        temperature=0.7,
+                        max_output_tokens=4096
+                    )
+                )
 
-        response = await asyncio.to_thread(get_stream)
-        
-        for chunk in response:
-            if chunk.text:
-                yield chunk.text
+            response = await asyncio.to_thread(get_stream)
+            for chunk in response:
+                if chunk.text:
+                    yield chunk.text
     
     async def _stream_deepseek(self, prompt: str) -> AsyncGenerator[str, None]:
         """Stream response from DeepSeek"""
@@ -278,12 +291,12 @@ class BaseAgent(ABC):
             {"role": "user", "content": prompt}
         ]
         
-        stream = await self.client.chat.completions.create(
-            model=self.model,
+        stream = await self.openai_client.chat.completions.create(
+            model="deepseek-chat",
             messages=messages,
             stream=True,
             temperature=0.7,
-            max_tokens=4096
+            max_tokens=512
         )
         
         async for chunk in stream:
