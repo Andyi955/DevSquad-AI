@@ -28,6 +28,13 @@ The Research framework uses a **Tandem Architecture** for maximum depth and spee
 1.  **Lead Architect (Gemini 3 Flash)**: Orchestrates the mission, performs high-speed web searches, and scrapes multiple sources in parallel.
 2.  **Synthesis Engine (DeepSeek V3)**: Analyzes the gathered raw data and synthesizes it into a high-impact Executive Report.
 
+### 🧠 DeepSeek "Thinking" Process
+We utilize **DeepSeek-V3** (via `deepseek-chat`) for the Junior Developer and Researcher agents to leverage its strong reasoning capabilities.
+- Agents explicitly show their internal monologue using `<think>` tags.
+- This "Show Your Work" approach allows you to see *how* the agent arrived at a solution before it writes any code.
+- The **Junior Dev** uses it to plan implementation steps.
+- The **Researcher** uses it to formulate search strategies and cross-reference sources.
+
 ### Highlights
 - 🎬 **Real-time streaming** - Watch agents think and respond live
 - 📝 **Mission Checklists** - Agents create and track multi-step plans automatically
@@ -45,7 +52,7 @@ The Research framework uses a **Tandem Architecture** for maximum depth and spee
 ### Prerequisites
 - Python 3.11+
 - Node.js 18+
-- API Keys for [Gemini](https://aistudio.google.com/) and [DeepSeek](https://platform.deepseek.com/)
+- API Keys for [Gemini](https://aistudio.google.com/), [DeepSeek](https://platform.deepseek.com/), and [Serper](https://serper.dev/) (for web research)
 
 ### 1. Clone & Setup
 
@@ -54,7 +61,7 @@ cd DevSquad-AI
 
 # Copy environment file and add your API keys
 cp .env.example .env
-# Edit .env and add your GEMINI_API_KEY and DEEPSEEK_API_KEY
+# Edit .env and add your GEMINI_API_KEY, DEEPSEEK_API_KEY, and SERPER_API_KEY
 ```
 
 ### 2. Backend Setup
