@@ -207,7 +207,7 @@ class BaseAgent(ABC):
         if context:
             if "files" in context:
                 parts.append("## Project Structure (Available Files)\n")
-                parts.append("You can see the names and sizes of all files in the project. You DO NOT have their content unless they are in the 'Active Context' below.\n")
+                parts.append("You see the file list below. To read any file's content, use the `[READ_FILE:path]` cue.\n")
                 for f in context["files"]:
                     parts.append(f"- {f['path']} ({f.get('size', 'unknown')} bytes)\n")
                 parts.append("\n")
@@ -236,7 +236,12 @@ class BaseAgent(ABC):
                     parts.append(f['content'])
                     parts.append("\n```\n\n")
             else:
-                parts.append("## Active Context\nNo files are currently attached or selected for deep analysis. You only see the project structure above.\n\n")
+                parts.append("## Active Context\nNo files are currently attached. If you need to see a file's content, you MUST use `[READ_FILE:path]`.\n\n")
+            
+            # Inject Mission Checklist if available
+            if context.get("checklist_summary"):
+                parts.append(context["checklist_summary"])
+                parts.append("\n\n")
             
             if "conversation" in context:
                 parts.append("## Previous Conversation\n")
@@ -248,8 +253,17 @@ class BaseAgent(ABC):
         
         return "".join(parts)
     
-    async def _stream_gemini(self, prompt: str) -> AsyncGenerator[str, None]:
+    async def _stream_gemini(self, prompt: str, retry_count: int = 0) -> AsyncGenerator[str, None]:
         """Stream response from Gemini using new SDK with async support"""
+        max_retries = 2
+        min_valid_chars = 50  # Retry if response is shorter than this
+        chunk_count = 0
+        total_chars = 0
+        last_chunk = None
+        
+        # print(f"\n🔍 [Gemini Debug] {self.name} - Prompt length: {len(prompt)} chars")
+        # print(f"   📝 Prompt preview: {prompt[:300]}...")
+        
         try:
             # The new SDK has an 'aio' attribute for async operations
             stream = await self.client.aio.models.generate_content_stream(
@@ -257,14 +271,60 @@ class BaseAgent(ABC):
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_prompt,
-                    temperature=0.7,
+                    temperature=0.4,  # Lower temperature for consistency
                     max_output_tokens=4096
                 )
             )
             
             async for chunk in stream:
+                chunk_count += 1
+                last_chunk = chunk
                 if chunk.text:
+                    total_chars += len(chunk.text)
                     yield chunk.text
+            
+            # print(f"📡 [Gemini] {self.name}: {chunk_count} chunks, {total_chars} chars")
+            
+            # Detailed logging for debugging short/empty responses
+            # if last_chunk and total_chars < min_valid_chars:
+            #     print(f"\n❓ [Gemini Debug] {self.name} - Short response analysis ({total_chars} chars):")
+            #     print(f"   Model: {self.model}")
+            #     
+            #     # Check for candidates
+            #     if hasattr(last_chunk, 'candidates') and last_chunk.candidates:
+            #         candidate = last_chunk.candidates[0]
+            #         print(f"   Finish reason: {candidate.finish_reason if hasattr(candidate, 'finish_reason') else 'N/A'}")
+            #         
+            #         # Check content
+            #         if hasattr(candidate, 'content') and candidate.content:
+            #             parts = candidate.content.parts if hasattr(candidate.content, 'parts') else []
+            #             print(f"   Parts count: {len(parts)}")
+            #             for i, part in enumerate(parts):
+            #                 text_len = len(part.text) if hasattr(part, 'text') else 0
+            #                 has_thought = hasattr(part, 'thought_signature') and part.thought_signature
+            #                 print(f"   Part {i}: text={text_len} chars, has_thought={has_thought}")
+            #     
+            #     # Check usage metadata
+            #     if hasattr(last_chunk, 'usage_metadata') and last_chunk.usage_metadata:
+            #         usage = last_chunk.usage_metadata
+            #         print(f"   Prompt tokens: {getattr(usage, 'prompt_token_count', 'N/A')}")
+            #         print(f"   Thought tokens: {getattr(usage, 'thoughts_token_count', 'N/A')}")
+            #         print(f"   Total tokens: {getattr(usage, 'total_token_count', 'N/A')}")
+            #     
+            #     # Check for prompt feedback (safety)
+            #     if hasattr(last_chunk, 'prompt_feedback') and last_chunk.prompt_feedback:
+            #         print(f"   ⚠️ Prompt feedback: {last_chunk.prompt_feedback}")
+            
+            # Retry on short/empty responses
+            if total_chars < min_valid_chars and retry_count < max_retries:
+                print(f"⚠️ [Gemini] {self.name}: Short response ({total_chars} chars), attempt {retry_count + 1}/{max_retries + 1}, retrying after 1s...")
+                await asyncio.sleep(1)  # Small delay before retry
+                async for chunk in self._stream_gemini(prompt, retry_count + 1):
+                    yield chunk
+            elif total_chars < min_valid_chars:
+                print(f"❌ [Gemini] {self.name}: Still short response after {max_retries + 1} attempts!")
+                yield f"\n\n[Agent {self.name} had difficulty generating a response. Attempting to continue...]"
+                
         except AttributeError:
             # Fallback if aio is not available or differently structured
             print("⚠️ Falling back to sync Gemini stream (aio not found)")
@@ -283,6 +343,9 @@ class BaseAgent(ABC):
             for chunk in response:
                 if chunk.text:
                     yield chunk.text
+        except Exception as e:
+            print(f"❌ [Gemini] {self.name} ERROR: {e}")
+            raise
     
     async def _stream_deepseek(self, prompt: str) -> AsyncGenerator[str, None]:
         """Stream response from DeepSeek"""

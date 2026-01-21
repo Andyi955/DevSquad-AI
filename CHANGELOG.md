@@ -1,33 +1,36 @@
 # Changelog
 
-## [1.1.0] - 2026-01-19
+All notable changes to the DevSquad AI project.
 
-### 🕵️‍♂️ Deep Research Showcase
-![Deep Research Demo](./docs/images/research_demo.gif)
+## [2026-01-21]
 
-### 🏗️ Technical Architecture: The Agentic Pipeline
-The Deep Research engine operates as a tri-agent collaborative system:
-1. **The Architect (Research Lead)**: Powered by *Gemini 2.0 Flash*, it analyzes the user query and generates a multi-pronged sub-research plan.
-2. **The Ground Crew (Researcher)**: Powered by *Gemini 1.5 Flash*, it executes the plan by searching the live web and scraping full-page content using Playwright.
-3. **The Expert Writer (Summarizer)**: Powered by *DeepSeek V3/R1*, it synthesizes the mass of collected raw data into a structured Executive Report, ensuring technical accuracy and readability.
+### ⚡ Performance & Stability
+- **Deep Research Architecture**: Switched "Research Lead" to Gemini 2.0 Flash for superior orchestration and "Collaborator" to DeepSeek V3 for high-speed synthesis.
+- **Optimized Gemini Streaming**: Removed verbose debug logging and error noise from Gemini streaming response handler.
+- **Stop Button Latency**: Implemented optimistic UI updates for the "Stop" button. It now reacts instantly by resetting the UI state while the backend terminates the process in the background.
 
-### Added
-- **Deep Research Engine**: New dedicated tab for exhaustive web research via multiple search passes.
-- **Downloadable Reports**: Users can now export the final Executive Report as a `.md` file.
-- **Hoverable Source Map**: A floating research tray at the bottom of reports that reveals sources on hover.
-- **Date/Time Context**: Injected environmental time into all agent prompts for better historical/current awareness.
+### 🤖 Agent System Improvements
+- **Mission Checklists**: 
+    - Implemented a structured `[MISSION_CHECKLIST]` system managed by the Senior Dev.
+    - Agents now rigorously track progress item-by-item (`[x]`) before marking a project complete.
+    - Prevents premature "Mission Accomplished" states.
+- **Hybrid "DeepThink"**:
+    - Enabled DeepSeek's chain-of-thought (`<think>`) reasoning for Junior Dev and Researcher agents.
+    - This allows for "System 2" thinking (planning before coding) while maintaining fast chat responses.
+- **Strict Handoff Logic**:
+    - Enforced a `Senior -> Junior (Implement) -> Senior (Review) -> Tester (Verify)` workflow.
+    - Prevented Junior Dev from attempting testing; removed "Tester" capabilities from Junior's prompt.
+    - Prevented Tester from attempting implementation; enforced "Fail Fast" handoffs to Junior if files are missing.
 
-### Changed
-- **Gemini SDK Migration**: Upgraded backend from legacy `google-generativeai` to the modern `google-genai` SDK for improved stability and performance.
-- **UI Refresh**: Completely redesigned main navigation tabs with neon purple/cyan active states.
-- **Layout Overhaul**: Migrated from CSS Grid to a responsive Flexbox architecture.
-- **Responsive Modes**: Added breakpoints for medium (1100px) and compact (800px) resolutions.
-- **Optimized Synthesis**: DeepSeek V3 now handles report generation with strict Markdown header protection.
+### 💅 UI/UX Enhancements
+- **Clean Output Formatting**:
+    - **No Sticky Words**: Fixed a Junior Dev formatting bug where backticks merged with words (e.g., `thefile.py`).
+    - **Header Protection**: Added logic to protect "## Headers" and "### Subheaders" from being garbled during stream cleanup.
+    - **Ghost Punctuation**: Fixed issues where removing technical tags left behind floating commas and periods.
+- **Review Panel Fullscreen**:
+    - Auto-closes full-screen diff view upon approval/rejection for smoother workflow.
 
-### Fixed
-- **Test Integrity**: Fully restored the backend test suite (`pytest`), resolving 12+ regressions related to async handling and missing routes.
-- **Hypercorn Stability**: Resolved `WinError 10038` and `LifespanFailure` crashes on Windows during server reloads.
-- **White Background Glitch**: Implemented global CSS resets to prevent default browser button styles from appearing.
-- **Playwright Fallback**: Added a circuit-breaker to disable Playwright if system drivers are missing, preventing crash loops.
-- **Display Cleaning**: Improved regex-based text cleaning to prevent section headers from merging into paragraphs.
-- **Route Restoration**: Re-implemented missing workspace and file operation endpoints in `main.py`.
+### 🐛 Bug Fixes
+- **Orchestrator Loop**: Fixed a potential infinite loop where the Unit Tester would continuously try to read a non-existent file. It now hands off to Junior Dev immediately.
+- **Playwright Errors**: Fixed `NotImplementedError` on Windows by switching the ASGI server to Hypercorn.
+- **File Uploads**: Added logic to detach the previous workspace before uploading a new one to prevent nested project folders.

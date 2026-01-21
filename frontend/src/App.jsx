@@ -50,8 +50,8 @@ function App() {
         setTimeline(prev => [{
           id: `start-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           type: 'agent_start',
-          message: `${data.name} started working`,
-          agent: data.name,
+          message: `${data.agent} started working`,
+          agent: data.agent,
           timestamp: new Date()
         }, ...prev].slice(0, 50))
         break
@@ -250,6 +250,18 @@ function App() {
   } = useWebSocket(`ws://127.0.0.1:8000/ws/agents`, {
     onMessage: handleMessage
   })
+
+  // Optimistic Stop Handler
+  const handleStopAgent = useCallback(() => {
+    console.log('🛑 [App] User requested stop - updating UI immediately');
+    stopAgent()
+    // Optimistic state updates
+    setIsTyping(false)
+    setIsDeepResearching(false)
+    setIsStopped(true)
+    // We keep currentAgent briefly so the chat doesn't jump, 
+    // but the typing indicator logic in AgentChat depends on isTyping, so it will hide.
+  }, [stopAgent])
 
   // Auto-sync: Poll for file changes every 2 seconds
   useEffect(() => {
@@ -851,7 +863,7 @@ function App() {
                 currentAgent={currentAgent}
                 onSendMessage={sendChatMessage}
                 isConnected={isConnected}
-                onStop={stopAgent}
+                onStop={handleStopAgent}
                 isStopped={isStopped}
                 attachedFiles={attachedFiles}
                 onAttachFiles={attachFiles}
