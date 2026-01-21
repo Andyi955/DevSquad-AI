@@ -247,7 +247,7 @@ class FileManager:
         if self.workspace_path is None:
             return []
         
-        print(f"🔍 [FileManager] Getting directory for: {self.workspace_path}")
+        # Noisy log removed: print(f"🔍 [FileManager] Getting directory for: {self.workspace_path}")
         files = []
         
         for path in self.workspace_path.rglob("*"):
@@ -272,9 +272,7 @@ class FileManager:
                 }
                 files.append(file_info)
                 # Verbose logging to catch the "merging" bug
-                print(f"  {'📄' if is_file else '📁'} Found: {rel_path}")
-        
-        print(f"🏁 [FileManager] Found {len(files)} files total.")
+        pass
         return sorted(files, key=lambda x: x["path"])
     
     async def read_file(self, path: str) -> Optional[str]:
@@ -322,10 +320,16 @@ class FileManager:
         # Generate change ID
         change_id = str(uuid.uuid4())[:8]
         
+        # Determine safe relative path for storage
+        try:
+            stored_path = str(file_path.relative_to(self.workspace_path)) if self.workspace_path else path
+        except (ValueError, TypeError):
+            stored_path = path
+
         # Store pending change
         self.pending_changes[change_id] = PendingChange(
             id=change_id,
-            path=str(file_path.relative_to(self.workspace_path)),
+            path=stored_path,
             action=action,
             new_content=content if content is not None else "",
             old_content=old_content,

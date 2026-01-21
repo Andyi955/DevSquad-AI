@@ -8,28 +8,33 @@ A fun, interactive web application where AI agents (DeepSeek & Gemini) collabora
   <img src="docs/images/dashboard1.png" alt="Main Interface" width="800">
   <br><i>Main chat interface with real-time streaming and neon theme</i>
   <br><br>
+  <img src="docs/images/dashboard_demo.gif" alt="Dashboard Demo" width="800">
+  <br><i>Live Multi-Agent Collaboration Dashboard</i>
+  <br><br>
   <img src="docs/images/research_demo.gif" alt="Deep Research Demo" width="800">
   <br><i>Tandem agents performing parallel search and synthesis</i>
-  <br><br>
-  <img src="docs/images/dashboard2.png" alt="File Management" width="800">
-  <br><i>Advanced workspace management and Safe Switch project switching</i>
 </div>
 
 ## ✨ Features
 
-- **🧙 Senior Dev** (Gemini) - Architecture, best practices, code review
-- **🐣 Junior Dev** (DeepSeek) - Implementation, questions, learning  
-- **🧪 Unit Tester** (Gemini) - Test coverage, edge cases, quality
-- **🔍 Researcher** (DeepSeek) - Web searches, documentation, latest news
+- **🧙 Senior Dev** (Gemini) - Architecture, planning, Mission Checklist management
+- **🐣 Junior Dev** (DeepSeek) - Implementation, code writing, bug fixes
+- **🧪 Unit Tester** (Gemini) - Test creation (Pytest/Unittest), quality assurance
+- **🔍 Researcher** (DeepSeek) - Targeted web searches, documentation lookups
+- **🏗️ Research Lead** (Gemini) - Deep research orchestration, report synthesis
+
+#### 🔬 Dedicated Deep Research
+The Research framework uses a **Tandem Architecture** for maximum depth and speed:
+1.  **Lead Architect (Gemini 3 Flash)**: Orchestrates the mission, performs high-speed web searches, and scrapes multiple sources in parallel.
+2.  **Synthesis Engine (DeepSeek V3)**: Analyzes the gathered raw data and synthesizes it into a high-impact Executive Report.
 
 ### Highlights
 - 🎬 **Real-time streaming** - Watch agents think and respond live
-- 💭 **Thought bubbles** - See agent reasoning (collapsible)
-- ✏️ **File management** - Agents can create, edit, or delete files with your approval
-- ⚡ **Safe Switch Management** - Dynamically switch between project folders without data loss
+- 📝 **Mission Checklists** - Agents create and track multi-step plans automatically
+- ⚡ **Optimistic UI** - Instant feedback for stop actions and state changes
+- 📎 **File Context** - Intelligent file reading (only reads what is needed)
+- 🔒 **Safe Switch Management** - Dynamically switch between project folders without data loss
 - 🌈 **Color-coded Diffs** - Visual representation of code additions and removals
-- 🔍 **Context-Aware Sidebar** - Rename, move, and organize files with a sleek tree view
-- 🌐 **Web research** - Agents browse docs, Stack Overflow, GitHub
 - 🎨 **Neon dark theme** - Beautiful UI with fun animations
 - 📊 **Usage tracking** - Monitor API usage and costs
 
@@ -78,13 +83,6 @@ hypercorn main:app --bind 0.0.0.0:8000 --reload
 
 ---
 
-## 🔬 Dedicated Deep Research Agent
-
-The Research framework uses a **Tandem Architecture** for maximum depth and speed:
-
-1.  **Lead Architect (Gemini 3 Flash)**: Orchestrates the mission, performs high-speed web searches, and scrapes multiple sources in parallel.
-2.  **Synthesis Engine (DeepSeek V3)**: Analyzes the gathered raw data and synthesizes it into a high-impact Executive Report.
-
 
 ### 3. Frontend Setup
 
@@ -115,7 +113,8 @@ DevSquad-AI/
 │   │   ├── senior_dev.py    # Gemini senior dev
 │   │   ├── junior_dev.py    # DeepSeek junior dev
 │   │   ├── unit_tester.py   # Gemini tester
-│   │   └── researcher.py    # DeepSeek researcher
+│   │   ├── researcher.py    # DeepSeek researcher
+│   │   └── research_lead.py # Deep research coordinator
 │   ├── prompts/             # Fine-tuned system prompts
 │   ├── services/            # File manager, browser, etc.
 │   └── requirements.txt
@@ -137,8 +136,9 @@ DevSquad-AI/
 ### 🧠 System Logic
 The application is designed around a **State Machine pattern** where each AI agent acts as a specialized node in a collaborative workflow. 
 
-- **Autonomous Decision Making**: Agents (Senior, Junior, Tester, etc.) don't just answer questions; they decide who is best suited to handle the next part of your request.
-- **The Orchestrator**: The central `orchestrator.py` manages the "handoff" logic. It parses agent responses for specific [cues](#agent-cue-system) and automatically routes the conversation to the next expert, ensuring a seamless multi-agent collaboration.
+- **Mission Checklists**: The Senior Dev breaks down complex requests into a step-by-step `[MISSION_CHECKLIST]`. Agents execute one step at a time and mark it complete.
+- **Autonomous Delegation**: Agents decide who is best suited for the next step (e.g., Senior Dev hands off implementation to Junior Dev, who hands off to Unit Tester).
+- **The Orchestrator**: The central `orchestrator.py` manages the "handoff" logic, parsing `[→AGENT]` cues and ensuring strict sequential execution.
 
 ### Agent Cue System
 Agents communicate via special cues in their responses:
@@ -149,13 +149,13 @@ Agents communicate via special cues in their responses:
 | `[→JUNIOR]` | Pass to Junior Dev |
 | `[→TESTER]` | Pass to Unit Tester |
 | `[→RESEARCH]` | Request web research |
-| `[SEARCH: "query"]` | Perform targeted web search (Researcher only) |
-| `[FILE_SEARCH:pattern]` | Search for files in the active project |
-| `[READ_FILE:path]` | Read file content in background (stays out of chat) |
+| `[MISSION_CHECKLIST]` | Create a new task plan |
+| `[CHECKLIST_UPDATE]` | Mark a task step as complete |
+| `[PROJECT_COMPLETE]` | Mark the entire mission as finished |
 | `[EDIT_FILE:path]` | Propose file edit (requires approval) |
 | `[CREATE_FILE:path]` | Create a new file (requires approval) |
-| `[DELETE_FILE:path]` | Propose file deletion (requires approval) |
-| `[DONE]` | Mission accomplished |
+| `[READ_FILE:path]` | Read file content in background |
+| `[DONE]` | End current turn |
 
 ### File Safety
 - ✅ Create new files

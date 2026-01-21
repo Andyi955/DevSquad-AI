@@ -39,6 +39,7 @@ class AgentOrchestrator:
         "JUNIOR": "Junior Dev",
         "TESTER": "Unit Tester",
         "RESEARCH": "Researcher",
+        "RESEARCHER": "Researcher",
         "LEAD": "Research Lead",
         "SEARCH": "Search",
         "FILE_SEARCH": "FileSearch"
@@ -52,8 +53,14 @@ class AgentOrchestrator:
         self.conversation: List[Message] = []
         self.pending_file_changes: List[dict] = []
         self.last_handoff: Optional[str] = None
+        self.handoff_queue: List[str] = []  # Queue for sequential handoffs
         self.initialized = False
         self.mission_status = "IDLE"
+        self._stop_event = asyncio.Event()
+        
+        # Mission Checklist tracking
+        self.mission_checklist: List[dict] = []  # [{step: str, agent: str, done: bool}]
+        self.mission_description: str = ""
     
     async def initialize(self):
         """Initialize all agents"""
@@ -75,90 +82,249 @@ class AgentOrchestrator:
         """Get status of all agents"""
         return [agent.get_info() for agent in self.agents.values()]
     
+    def _extract_mission_checklist(self, content: str) -> bool:
+        """
+        Extract and store a Mission Checklist from agent response.
+        Returns True if a checklist was found and parsed.
+        
+        Format:
+        [MISSION_CHECKLIST]
+        Mission: Description
+        - [ ] 1. Step one (→AGENT)
+        - [ ] 2. Step two (→AGENT)
+        [/MISSION_CHECKLIST]
+        """
+        pattern = r'\[MISSION_CHECKLIST\](.*?)\[/MISSION_CHECKLIST\]'
+        match = re.search(pattern, content, re.DOTALL)
+        
+        if not match:
+            return False
+        
+        checklist_text = match.group(1).strip()
+        lines = checklist_text.split('\n')
+        
+        self.mission_checklist = []
+        self.mission_description = ""
+        
+        for line in lines:
+            line = line.strip()
+            
+            # Parse mission description
+            if line.startswith('Mission:'):
+                self.mission_description = line[8:].strip()
+                continue
+            
+            # Parse checklist items: - [ ] 1. Description (→AGENT)
+            item_match = re.match(r'-\s*\[([ x])\]\s*(\d+)\.\s*(.+?)(?:\s*\(→(\w+)\))?$', line)
+            if item_match:
+                done = item_match.group(1) == 'x'
+                step_num = int(item_match.group(2))
+                description = item_match.group(3).strip()
+                agent = item_match.group(4) or "SENIOR"
+                
+                self.mission_checklist.append({
+                    'step': step_num,
+                    'description': description,
+                    'agent': agent,
+                    'done': done
+                })
+        
+        if self.mission_checklist:
+            print(f"📋 [Orchestrator] Parsed Mission Checklist: {len(self.mission_checklist)} items")
+            for item in self.mission_checklist:
+                status = "✅" if item['done'] else "⬜"
+                print(f"   {status} {item['step']}. {item['description']} (→{item['agent']})")
+            return True
+        
+        return False
+    
+    def _extract_checklist_updates(self, content: str) -> int:
+        """
+        Extract and apply checklist updates from agent response.
+        Returns number of items updated.
+        
+        Format:
+        [CHECKLIST_UPDATE]
+        - [x] 2. Step description
+        [/CHECKLIST_UPDATE]
+        """
+        pattern = r'\[CHECKLIST_UPDATE\](.*?)\[/CHECKLIST_UPDATE\]'
+        matches = re.findall(pattern, content, re.DOTALL)
+        
+        updates_applied = 0
+        
+        for match in matches:
+            lines = match.strip().split('\n')
+            for line in lines:
+                line = line.strip()
+                # Parse: - [x] 2. Description
+                item_match = re.match(r'-\s*\[(x)\]\s*(\d+)\.\s*(.+)', line)
+                if item_match:
+                    step_num = int(item_match.group(2))
+                    
+                    # Find and update the matching item
+                    for item in self.mission_checklist:
+                        if item['step'] == step_num and not item['done']:
+                            item['done'] = True
+                            updates_applied += 1
+                            print(f"✅ [Orchestrator] Checklist updated: Step {step_num} marked complete")
+                            break
+        
+        return updates_applied
+    
+    def _is_checklist_complete(self) -> bool:
+        """Check if all checklist items are marked done"""
+        if not self.mission_checklist:
+            return True  # No checklist = can complete anytime
+        
+        return all(item['done'] for item in self.mission_checklist)
+    
+    def get_checklist_summary(self) -> str:
+        """Get a formatted summary of the current checklist for agent context"""
+        if not self.mission_checklist:
+            return ""
+        
+        lines = [f"## Current Mission Checklist: {self.mission_description}"]
+        for item in self.mission_checklist:
+            status = "[x]" if item['done'] else "[ ]"
+            lines.append(f"- {status} {item['step']}. {item['description']} (→{item['agent']})")
+        
+        completed = sum(1 for item in self.mission_checklist if item['done'])
+        total = len(self.mission_checklist)
+        lines.append(f"\n**Progress: {completed}/{total} complete**")
+        
+        if completed < total:
+            lines.append(f"⚠️ Cannot use [PROJECT_COMPLETE] until all items are [x]")
+        else:
+            lines.append(f"✅ All items complete - [PROJECT_COMPLETE] is allowed")
+        
+        return "\n".join(lines)
+
+    
     def _select_initial_agent(self, message: str) -> str:
         """Select which agent should respond first based on message content"""
         
-        # Check for explicit agent mentions with word boundaries
-        # Use regex to avoid partial matches (e.g. "latest" matching "test")
-        if re.search(r'\b(tests?|testing|coverage|unit tests?)\b', message, re.IGNORECASE):
+        # 1. Check for explicit mentions first (Highest Priority)
+        if re.search(r'\b(senior|lead|architect)\b', message, re.IGNORECASE):
+            return "Senior Dev"
+        if re.search(r'\b(junior|dev|implement)\b', message, re.IGNORECASE):
+            return "Junior Dev"
+        if re.search(r'\b(tester|tests?|testing|coverage)\b', message, re.IGNORECASE):
             return "Unit Tester"
-        
+        if re.search(r'\b(researcher|research|search|find)\b', message, re.IGNORECASE):
+            return "Researcher"
+
+        # 2. Key phrases/intents
         # Research keywords
         if re.search(r'\b(deep research|thorough research|analyze|report|synthesis|multiple sources|comparison)\b', message, re.IGNORECASE):
             return "Research Lead"
             
-        if re.search(r'\b(research|search|find|look up|latest|docs?|documentation)\b', message, re.IGNORECASE):
+        if re.search(r'\b(docs?|documentation|latest news|look up)\b', message, re.IGNORECASE):
             return "Researcher"
+
+        # Senior Dev for architectural decisions, complex planning, team requests, or building new things
+        senior_keywords = [
+            r'\b(team|build|create|design|architecture|plan|refactor|structure|feature|project|system)\b',
+            r'\b(how should|best way|what is the best|organize)\b'
+        ]
+        if any(re.search(kw, message, re.IGNORECASE) for kw in senior_keywords):
+            return "Senior Dev"
         
-        # Default to Junior Dev for implementation and general tasks
+        # Default to Junior Dev for specific implementation, fixes, and direct tasks
         return "Junior Dev"
     
     def _extract_cues(self, content: str) -> List[str]:
-        """Extract cues from agent response"""
-        cues = []
+        """Extract cues from agent response, respecting their order of appearance"""
+        cue_hits = []
         
-        # Check for handoff cues
+        # 1. Find explicit handoff tags [→AGENT]
         for cue_name in self.CUE_TO_AGENT.keys():
-            if f"[→{cue_name}]" in content:
-                cues.append(cue_name)
+            pattern = re.escape(f"[→{cue_name}]")
+            for match in re.finditer(pattern, content):
+                cue_hits.append((match.start(), cue_name))
         
-        # Check for file edit cues
+        # 2. Find @mentions as accidental handoffs
+        mention_pattern = r'(@(Senior|Junior|Tester|Researcher)(?:\s*Dev)?)'
+        for match in re.finditer(mention_pattern, content, re.IGNORECASE):
+            full_mention = match.group(1)
+            agent_found = match.group(2).upper()
+            
+            # Check context: Is this just a thank you?
+            context_before = content[max(0, match.start() - 20):match.start()].lower()
+            if any(keyword in context_before for keyword in ["thanks", "thank", "great work", "good job", "excellent"]):
+                print(f"👋 [Orchestrator] Ignoring thank-you mention of {agent_found}")
+                continue
+
+            if agent_found in self.CUE_TO_AGENT:
+                cue_hits.append((match.start(), agent_found))
+        
+        # 3. Find file edit cues
         edit_pattern = r'\[EDIT_FILE:([^\]]+)\]'
-        edits = re.findall(edit_pattern, content)
-        for path in edits:
-            cues.append(f"EDIT:{path}")
+        for match in re.finditer(edit_pattern, content):
+            path = match.group(1)
+            cue_hits.append((match.start(), f"EDIT:{path}"))
         
         create_pattern = r'\[CREATE_FILE:([^\]]+)\]'
-        creates = re.findall(create_pattern, content)
-        for path in creates:
-            cues.append(f"CREATE:{path}")
-        
-        # Check for search cues
+        for match in re.finditer(create_pattern, content):
+            path = match.group(1)
+            cue_hits.append((match.start(), f"CREATE:{path}"))
+
+        # 4. Find search cues
         search_pattern = r'\[SEARCH:([^\]]+)\]'
-        searches = re.findall(search_pattern, content)
-        for query in searches:
-            # Strip quotes and whitespace
-            clean_query = query.strip().strip('"').strip("'")
-            cues.append(f"SEARCH:{clean_query}")
+        for match in re.finditer(search_pattern, content):
+            query = match.group(1).strip().strip('"').strip("'")
+            cue_hits.append((match.start(), f"SEARCH:{query}"))
 
-        # Check for file search cues
+        # 5. Find file search cues
         file_search_pattern = r'\[FILE_SEARCH:([^\]]+)\]'
-        file_searches = re.findall(file_search_pattern, content)
-        for pattern in file_searches:
-            cues.append(f"FILE_SEARCH:{pattern.strip()}")
+        for match in re.finditer(file_search_pattern, content):
+            pattern = match.group(1).strip()
+            cue_hits.append((match.start(), f"FILE_SEARCH:{pattern}"))
 
-        # Check for file delete cues
+        # 6. Find file delete cues
         delete_pattern = r'\[DELETE_FILE:([^\]]+)\]'
-        deletes = re.findall(delete_pattern, content)
-        for path in deletes:
-            cues.append(f"DELETE:{path}")
+        for match in re.finditer(delete_pattern, content):
+            path = match.group(1)
+            cue_hits.append((match.start(), f"DELETE:{path}"))
 
-        # Check for file read cues
+        # 7. Find file read cues
         read_pattern = r'\[READ_FILE:([^\]]+)\]'
-        reads = re.findall(read_pattern, content)
-        for path in reads:
-            cues.append(f"READ:{path}")
+        for match in re.finditer(read_pattern, content):
+            path = match.group(1)
+            cue_hits.append((match.start(), f"READ:{path}"))
 
-        # Check for web read cues
+        # 8. Find web read cues
         web_read_pattern = r'\[READ_URL:([^\]]+)\]'
-        web_reads = re.findall(web_read_pattern, content)
-        for url in web_reads:
-            clean_url = url.strip().strip('"').strip("'")
-            cues.append(f"READ_URL:{clean_url}")
+        for match in re.finditer(web_read_pattern, content):
+            url = match.group(1).strip().strip('"').strip("'")
+            cue_hits.append((match.start(), f"READ_URL:{url}"))
 
-        # Check for sub-research cues (Deep Research)
+        # 9. Find sub-research cues (Deep Research)
         sub_research_pattern = r'\[SUB_RESEARCH:([^\]]+)\]'
-        subs = re.findall(sub_research_pattern, content)
-        for query in subs:
-            # Strip quotes and whitespace
-            clean_query = query.strip().strip('"').strip("'")
-            cues.append(f"SUB_RESEARCH:{clean_query}")
+        for match in re.finditer(sub_research_pattern, content):
+            query = match.group(1).strip().strip('"').strip("'")
+            cue_hits.append((match.start(), f"SUB_RESEARCH:{query}"))
 
-        # Check for done cue
+        # 10. Check for DONE cue
         if "[DONE]" in content:
-            cues.append("DONE")
+            pos = content.rfind("[DONE]")
+            cue_hits.append((pos, "DONE"))
         
-        return cues
+        # 11. Check for PROJECT_COMPLETE cue
+        if "[PROJECT_COMPLETE]" in content:
+            pos = content.rfind("[PROJECT_COMPLETE]")
+            cue_hits.append((pos, "PROJECT_COMPLETE"))
+
+        # Sort all found cues by their start position in the text
+        cue_hits.sort(key=lambda x: x[0])
+        
+        # Return unique cues in order of appearance
+        final_cues = []
+        for _, cue in cue_hits:
+            if cue not in final_cues:
+                final_cues.append(cue)
+        
+        return final_cues
     
     def _extract_code_block(self, content: str, start_index: int = 0) -> Optional[tuple[str, int, int]]:
         """
@@ -323,7 +489,12 @@ class AgentOrchestrator:
         if self.mission_status == "IDLE":
             # Start new mission - Clear previous context to avoid confusion
             self.conversation = [] 
+            self.handoff_queue = []
             self.mission_status = "IN_PROGRESS"
+            yield {"type": "agent_status", "status": "🚀 Initializing mission..."}
+        
+        # Reset stop event
+        self._stop_event.clear()
         
         # Select initial agent
         current_agent_name = initial_agent or self._select_initial_agent(message)
@@ -338,10 +509,30 @@ class AgentOrchestrator:
         ]
         
         while turn < max_turns:
-            turn += 1
-            agent = self.agents[current_agent_name]
+            if self._stop_event.is_set():
+                print("🛑 Stopping process_message_stream due to stop event")
+                yield {"type": "complete", "message": "Mission stopped by user"}
+                break
             
-            # Announce agent starting
+            # Refresh Attached Files contents from disk to ensure agents see newest approved changes
+            if full_context.get("attached_files"):
+                for file_info in full_context["attached_files"]:
+                    file_path_str = file_info.get("path")
+                    if file_path_str and isinstance(file_path_str, str):
+                        try:
+                            on_disk_content = await self.file_manager.read_file(file_path_str)
+                            if on_disk_content is not None:
+                                file_info["content"] = on_disk_content
+                        except Exception as e:
+                            print(f"⚠️ Failed to refresh {file_path_str}: {e}")
+
+            turn += 1
+            start_time = datetime.now()
+            agent = self.agents[current_agent_name]
+            print(f"\n{'='*60}")
+            print(f"🎬 [Orchestrator] Turn {turn} starting with {current_agent_name}")
+            print(f"{'='*60}")
+            
             yield {
                 "type": "agent_start",
                 "agent": current_agent_name,
@@ -350,6 +541,9 @@ class AgentOrchestrator:
                 "turn": turn
             }
             
+            # Update Gemini's context
+            turn_context = full_context.copy()
+            
             # Collect full response for cue extraction
             full_response = ""
             full_thoughts = ""
@@ -357,8 +551,12 @@ class AgentOrchestrator:
             # Stream agent response
             suppress_message = False
             last_was_cue = False
-
-            async for event in agent.think(current_message, full_context):
+            print(f"\n🔄 [Orchestrator] Starting stream for {current_agent_name}...")
+            # print(f"   📨 Message (first 200 chars): {current_message[:200]}...")
+            async for event in agent.think(current_message, turn_context):
+                if self._stop_event.is_set():
+                    print(f"🛑 [Orchestrator] Force stopping turn for {current_agent_name}")
+                    break
                 if event.get("update_state"):
                     continue
                     
@@ -402,12 +600,58 @@ class AgentOrchestrator:
                     if event.get("content", "") in ["EDIT_FILE", "CREATE_FILE", "DELETE_FILE"]:
                         last_was_cue = True
             
-            # Track usage
-            if self.usage_tracker:
-                self.usage_tracker.track(agent.provider, 1)
+            # Track usage and timing
+            duration = (datetime.now() - start_time).total_seconds()
+            print(f"⏱️ [Orchestrator] Turn {turn} ({current_agent_name}) took {duration:.2f}s")
+            
+            # Send stats to UI
+            yield {
+                "type": "turn_stats",
+                "agent": current_agent_name,
+                "duration": duration,
+                "turn": turn
+            }
             
             # Extract cues and determine next action
             cues = self._extract_cues(full_response)
+            if cues:
+                print(f"🎯 [Orchestrator] Cues detected: {cues}")
+                # Visualize cues for dev console
+                yield {
+                    "type": "dev_log",
+                    "level": "info",
+                    "message": f"🎯 Agent {current_agent_name} triggered cues: {', '.join(cues)}"
+                }
+            # else:
+            #     # Debug: Log when NO cues are found
+            #     response_preview = full_response[-500:] if len(full_response) > 500 else full_response
+            #     print(f"⚠️ [Orchestrator] NO CUES detected from {current_agent_name}!")
+            #     print(f"   📝 Response length: {len(full_response)} chars")
+            #     print(f"   📝 Response tail: {response_preview[:200]}...")
+            
+            # Process Mission Checklist cues
+            if self._extract_mission_checklist(full_response):
+                yield {
+                    "type": "checklist_created",
+                    "mission": self.mission_description,
+                    "items": self.mission_checklist
+                }
+            
+            # Process Checklist Updates
+            updates = self._extract_checklist_updates(full_response)
+            if updates > 0:
+                yield {
+                    "type": "checklist_updated",
+                    "items_completed": updates,
+                    "mission": self.mission_description,
+                    "checklist": self.mission_checklist,
+                    "is_complete": self._is_checklist_complete()
+                }
+            
+            # Inject checklist summary into context for next agent
+            checklist_summary = self.get_checklist_summary()
+            if checklist_summary:
+                full_context["checklist_summary"] = checklist_summary
             
             # Extract all file edits and associate with their code blocks
             all_edits = self._extract_all_edits(full_response)
@@ -617,6 +861,7 @@ class AgentOrchestrator:
                     
                     yield {
                         "type": "agent_status",
+                        "agent": "Research Lead",
                         "status": f"🔍 Researching: {query}..."
                     }
                     
@@ -699,6 +944,7 @@ class AgentOrchestrator:
                 print(f"\n🌐 [READ_URL] Agent requested direct URL read: {read_url}")
                 yield {
                     "type": "agent_status",
+                    "agent": current_agent_name,
                     "status": f"Reading page: {read_url}..."
                 }
                 
@@ -717,6 +963,7 @@ class AgentOrchestrator:
             if search_query:
                 yield {
                     "type": "agent_status",
+                    "agent": current_agent_name,
                     "status": f"Searching for: {search_query}..."
                 }
                 
@@ -741,13 +988,30 @@ class AgentOrchestrator:
                 continue
 
             # Check for handoff
+            cues_for_handoff = [c for c in cues if c in self.CUE_TO_AGENT]
             handoff_agent = None
             handoff_cue = None
-            for cue in cues:
-                if cue in self.CUE_TO_AGENT:
-                    handoff_agent = self.CUE_TO_AGENT[cue]
-                    handoff_cue = cue
-                    break
+            
+            print(f"🔍 [Orchestrator] Checking for handoff. Cues for handoff: {cues_for_handoff}")
+
+            if cues_for_handoff:
+                # If multiple cues, the first one is immediate, others go to queue
+                first_cue = cues_for_handoff[0]
+                target_agent = self.CUE_TO_AGENT[first_cue]
+                print(f"🎯 [Orchestrator] First handoff cue: {first_cue} -> {target_agent}")
+                
+                if target_agent != current_agent_name:
+                    handoff_agent = target_agent
+                    handoff_cue = first_cue
+                    print(f"✅ [Orchestrator] Will hand off to: {handoff_agent}")
+                    
+                    # Queue the rest if they aren't already there
+                    for extra_cue in cues_for_handoff[1:]:
+                        extra_agent = self.CUE_TO_AGENT[extra_cue]
+                        if extra_agent not in self.handoff_queue and extra_agent != current_agent_name:
+                            self.handoff_queue.append(extra_agent)
+                else:
+                    print(f"⚠️ [Orchestrator] Handoff target same as current agent, skipping")
 
             # If file edit proposed, we pause here to let user review
             if file_edit_proposed:
@@ -759,26 +1023,81 @@ class AgentOrchestrator:
                 }
                 break
 
-            # Check for done
-            if "DONE" in cues:
-                self.mission_status = "IDLE" # Mark mission as complete
+            # Check for PROJECT_COMPLETE - Immediate Stop
+            if "PROJECT_COMPLETE" in cues:
+                # Validate checklist is complete before allowing project completion
+                if not self._is_checklist_complete():
+                    incomplete_items = [item for item in self.mission_checklist if not item['done']]
+                    incomplete_list = ", ".join([f"Step {item['step']}" for item in incomplete_items])
+                    print(f"⚠️ [Orchestrator] PROJECT_COMPLETE blocked - checklist incomplete: {incomplete_list}")
+                    
+                    yield {
+                        "type": "dev_log",
+                        "level": "warning", 
+                        "message": f"⚠️ [PROJECT_COMPLETE] blocked: {len(incomplete_items)} checklist items incomplete"
+                    }
+                    
+                    # Send warning back to agent and continue
+                    current_message = f"⚠️ Cannot mark project complete yet. The following checklist items are not done:\n"
+                    for item in incomplete_items:
+                        current_message += f"- [ ] {item['step']}. {item['description']} (→{item['agent']})\n"
+                    current_message += "\nPlease complete these remaining steps first."
+                    
+                    # Keep same agent to handle the incomplete work
+                    continue
+                
+                print("🏁 [Orchestrator] Project marked as COMPLETE by agent")
+                self.handoff_queue = [] # Clear queue
+                self.mission_status = "IDLE"
+                
+                # Clear checklist for next mission
+                self.mission_checklist = []
+                self.mission_description = ""
                 
                 # Cleanup research files
                 if os.path.exists(".research"):
                     try:
                         shutil.rmtree(".research")
-                        print("🧹 Cleanup: Removed temporary .research/ directory")
-                    except Exception as e:
-                        print(f"⚠️ Cleanup failed: {e}")
+                    except Exception:
+                        pass
 
                 yield {
                     "type": "agent_done",
                     "agent": current_agent_name,
-                    "message": "Task completed! ✅"
+                    "message": "Mission Accomplished! 🚀"
                 }
                 break
+
+            # Check for done - but only if NO handoff is pending and queue is empty
+            if "DONE" in cues:
+                if handoff_agent:
+                    # We have a handoff pending, don't break - let the handoff happen
+                    print(f"📌 [Orchestrator] DONE detected but handoff to {handoff_agent} pending - continuing")
+                elif self.handoff_queue:
+                    # Move to next agent in queue instead of stopping
+                    handoff_agent = self.handoff_queue.pop(0)
+                    handoff_cue = "QUEUE_NEXT"
+                    print(f"⏭️ [Orchestrator] Task complete. Moving to queued agent: {handoff_agent}")
+                else:
+                    # No handoff pending and queue empty - actually stop
+                    print(f"⏹️ [Orchestrator] DONE detected with no pending handoffs - stopping")
+                    
+                    # Cleanup research files
+                    if os.path.exists(".research"):
+                        try:
+                            shutil.rmtree(".research")
+                        except Exception:
+                            pass
+
+                    yield {
+                        "type": "agent_done",
+                        "agent": current_agent_name,
+                        "message": "Turn complete. Waiting for next step. ✅"
+                    }
+                    break
             
             if handoff_agent:
+                print(f"🔀 [Orchestrator] Executing handoff: {current_agent_name} -> {handoff_agent}")
                 yield {
                     "type": "handoff",
                     "from_agent": current_agent_name,
@@ -789,8 +1108,10 @@ class AgentOrchestrator:
                 # Set up for next turn
                 current_agent_name = handoff_agent
                 current_message = f"Previous agent ({msg.agent}) said:\n\n{full_response}\n\nPlease continue with your expertise."
+                print(f"🔄 [Orchestrator] Continuing loop to turn {turn+1}...")
             else:
                 # No handoff, we're done
+                print(f"⏹️ [Orchestrator] No handoff detected, ending loop")
                 yield {
                     "type": "agent_done",
                     "agent": current_agent_name,
@@ -798,11 +1119,13 @@ class AgentOrchestrator:
                 }
                 break
         
+        print(f"🏁 [Orchestrator] Loop ended after {turn} turns")
         # Final complete event
         yield {
             "type": "complete",
             "turns": turn,
-            "conversation_length": len(self.conversation)
+            "conversation_length": len(self.conversation),
+            "final": self.mission_status == "IDLE"
         }
     
     async def handle_approval_signal(self, approved: bool, feedback: str = None) -> Dict:
@@ -816,11 +1139,13 @@ class AgentOrchestrator:
         last_agent_name = last_msg.agent if last_msg else "Senior Dev"
         
         # Check if they said they were done
-        was_done = last_msg and "DONE" in last_msg.cues
+        was_done = last_msg and "[DONE]" in last_msg.content
         
         if approved:
-            # If they were done and it's approved, we truly are finished
-            if was_done:
+            # Check if they explicitly marked the project as complete
+            is_project_complete = last_msg and "[PROJECT_COMPLETE]" in last_msg.content
+            
+            if is_project_complete:
                 self.mission_status = "IDLE"
                 self.last_handoff = None
                 return {
@@ -830,10 +1155,22 @@ class AgentOrchestrator:
                 
             if self.last_handoff:
                 current_agent_name = self.last_handoff
-                message = f"The user has approved the file changes from {last_agent_name}. You've been called in to help with the next step. Please proceed with your expertise."
+                message = f"The user has approved the file changes from {last_agent_name}. You've been called in to help with the next step."
+            elif self.handoff_queue:
+                current_agent_name = self.handoff_queue.pop(0)
+                message = f"User approved previous changes. Now it's your turn in the mission queue."
             else:
-                current_agent_name = last_agent_name
-                message = "User approved the changes. Great job! Is there anything else?"
+                # If was_done, we might want to hand back to Senior for final check
+                if was_done and last_agent_name == "Junior Dev":
+                    current_agent_name = "Senior Dev"
+                    message = f"The Junior Dev has finished their task and the changes were approved. Please review the result and decide on the next step."
+                else:
+                    current_agent_name = last_agent_name
+                    message = "Great! Changes approved. What's next?"
+            
+            # CRITICAL: Since files were just approved, they are now on disk.
+            # We don't need to pass anything extra here; the next call to 
+            # process_message_stream in main.py will handle building context.
         else:
             # Rejection - stick with same agent or go to requester if feedback exists
             current_agent_name = last_agent_name
@@ -851,10 +1188,22 @@ class AgentOrchestrator:
             "message": message
         }
 
-    def clear_conversation(self):
-        """Clear conversation history"""
+    def stop(self):
+        """Signal all agents to stop"""
+        print("🛑 [Orchestrator] Stop signal received - Clearing queue and stopping agents")
+        self._stop_event.set()
+        self.handoff_queue = [] # Clear any pending agents
+        self.mission_status = "IDLE"
+
+    def clear_history(self):
+        """Clear conversation history and reset mission state"""
         self.conversation = []
         self.last_handoff = None
+        self.handoff_queue = []
+        self.mission_status = "IDLE"
+        # Clear checklist state
+        self.mission_checklist = []
+        self.mission_description = ""
         return {"status": "cleared"}
 
     async def do_research(self, query: str) -> AsyncGenerator[Dict, None]:

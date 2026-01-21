@@ -3,7 +3,7 @@
  * Real-time chat with AI agents
  */
 
-import { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import './AgentChat.css'
 import ReactMarkdown from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
@@ -155,8 +155,8 @@ function AgentChat({
             return (
                 <div key={msg.id} className="mission-complete-card">
                     <div className="mission-complete-badge">
-                        <span className="check">✅</span>
-                        <span className="text">MISSION ACCOMPLISHED</span>
+                        <span className="check">⭐</span>
+                        <span className="text">PROJECT COMPLETED</span>
                     </div>
                 </div>
             )
@@ -201,8 +201,16 @@ function AgentChat({
             // Hide fully formed technical tags
             content = rawContent
                 .replace(/\[(EDIT_FILE|CREATE_FILE|DELETE_FILE|READ_FILE|SEARCH|FILE_SEARCH):[^\]]+\]/g, '')
-                .replace(/\[→(SENIOR|JUNIOR|TESTER|RESEARCH)\]/g, (match, p1) => mentionMap[p1] || match)
+                .replace(/\[→.*?\]/g, (match) => {
+                    // Match the agent name within the handoff tag [→Agent Name]
+                    const agentName = match.slice(2, -1).trim().toUpperCase();
+                    for (const cue in mentionMap) {
+                        if (agentName.includes(cue)) return mentionMap[cue];
+                    }
+                    return ''; // Hide it if it doesn't match a known agent
+                })
                 .replace(/\[File (Edit|Create|Delete): [^\]]+\]/g, '')
+                .replace(/✅?(\[)?MISSION ACCOMPLISHED(\])?/g, '')
                 .replace(/\[DONE\]/g, '');
 
             // Clean up ghost punctuation left by tag removal
@@ -228,11 +236,15 @@ function AgentChat({
             content = content.replace(/\b(for|to|at|in|about|of|with|and|the)\s*\n/g, '\n');
 
             // Hide PARTIAL technical tags at the end of the stream (to prevent flashing)
+            // We only hide if the tag is NOT yet complete (doesn't have a closing ']')
             const partialPatterns = ['EDIT_FILE', 'CREATE_FILE', 'DELETE_FILE', 'READ_FILE', 'SEARCH', 'FILE_SEARCH', '→SENIOR', '→JUNIOR', '→TESTER', '→RESEARCH', 'DONE'];
             const lastOpenBracket = content.lastIndexOf('[');
-            if (lastOpenBracket !== -1) {
+            const lastCloseBracket = content.lastIndexOf(']');
+
+            if (lastOpenBracket !== -1 && lastOpenBracket > lastCloseBracket) {
                 const afterBracket = content.slice(lastOpenBracket + 1);
-                if (partialPatterns.some(p => p.startsWith(afterBracket) || afterBracket.startsWith(p))) {
+                // If the text after '[' looks like one of our tags (but isn't finished), hide it
+                if (partialPatterns.some(p => p.startsWith(afterBracket))) {
                     content = content.slice(0, lastOpenBracket);
                 }
             }
@@ -242,6 +254,44 @@ function AgentChat({
         } else {
             // Already concise from backend, use it directly
             content = rawContent.replace(/\[→(SENIOR|JUNIOR|TESTER|RESEARCH)\]/g, (match, p1) => mentionMap[p1] || match);
+        }
+
+        // --- MENTION STYLING ---
+        // Dynamically wrap @mentions in styled spans
+        const renderStyledContent = (node) => {
+            if (typeof node !== 'string') return node;
+
+            const parts = node.split(/(@Senior Dev|@Junior Dev|@Unit Tester|@Researcher)/g);
+            return parts.map((part, i) => {
+                const agentKey = Object.keys(AGENTS).find(k => `@${k}` === part);
+                if (agentKey) {
+                    const agentMeta = AGENTS[agentKey];
+                    return (
+                        <span key={i} className={`mention-badge ${agentMeta.class}`} style={{
+                            color: agentMeta.color,
+                            background: `rgba(0,0,0,0.4)`,
+                            padding: '2px 8px',
+                            margin: '0 2px',
+                            borderRadius: '4px',
+                            fontSize: '0.85em',
+                            fontWeight: 'bold',
+                            border: `1px solid ${agentMeta.color}66`,
+                            boxShadow: `0 0 10px ${agentMeta.color}22`,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            verticalAlign: 'middle'
+                        }}>
+                            {part}
+                        </span>
+                    );
+                }
+                return part;
+            });
+        };
+
+        // Safety check: Don't render functionally empty messages
+        if (!content?.trim() && !msg.thoughts?.trim() && !msg.type) {
+            return null;
         }
 
         return (
@@ -256,17 +306,17 @@ function AgentChat({
                 )}
 
                 <div className="message-content">
-                    {msg.type !== 'agent_status' && (
-                        <div className="message-header">
-                            <span
-                                className={`message-name ${agent.class}`}
-                                style={{ color: agent.color }}
-                            >
-                                {msg.agent}
-                            </span>
-                            <span className="message-time">{formatTime(msg.timestamp)}</span>
-                        </div>
-                    )}
+                    <div className="message-header">
+                        <span
+                            className={`message-name ${agent.class}`}
+                            style={{ color: agent.color }}
+                        >
+                            {msg.agent || "System"}
+                        </span>
+                        <span className="message-time" style={{ marginLeft: '12px', opacity: 0.6 }}>
+                            {formatTime(msg.timestamp)}
+                        </span>
+                    </div>
 
                     <div
                         className={msg.type === 'agent_status' ? 'status-body' : 'message-body'}
@@ -279,6 +329,24 @@ function AgentChat({
                         <ReactMarkdown
                             rehypePlugins={[rehypeHighlight]}
                             components={{
+                                p: ({ children }) => {
+                                    // Process children to hide mission tags and style mentions
+                                    const processedChildren = React.Children.map(children, (child) => {
+                                        if (typeof child === 'string') {
+                                            const cleaned = child.replace(/✅?(\[)?MISSION ACCOMPLISHED(\])?/g, '').trim();
+                                            return cleaned ? renderStyledContent(cleaned) : null;
+                                        }
+                                        return child;
+                                    }).filter(Boolean);
+
+                                    if (processedChildren.length === 0) return null;
+
+                                    return (
+                                        <p>
+                                            {processedChildren}
+                                        </p>
+                                    );
+                                },
                                 code({ node, inline, className, children, ...props }) {
                                     const match = /language-(\w+)/.exec(className || '')
                                     const content = String(children).replace(/\n$/, '')
@@ -324,27 +392,42 @@ function AgentChat({
 
                     {/* Native Collapsible Thoughts */}
                     {msg.thoughts && (
-                        <details className="thought-details" style={{
-                            marginTop: '8px',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '6px',
-                            background: 'rgba(0,0,0,0.2)'
-                        }}>
+                        <details
+                            className="thought-details"
+                            open={!msg.content} // Keep open while ONLY thinking, close when content starts
+                            style={{
+                                marginTop: '8px',
+                                border: '1px solid rgba(255,255,255,0.05)',
+                                borderRadius: '12px',
+                                background: 'rgba(0,0,0,0.3)',
+                                backdropFilter: 'blur(10px)',
+                                overflow: 'hidden',
+                                transition: 'all 0.3s ease'
+                            }}
+                        >
                             <summary style={{
-                                padding: '8px 12px',
+                                padding: '10px 14px',
                                 cursor: 'pointer',
-                                fontSize: '0.8125rem',
-                                color: 'var(--text-secondary)',
+                                fontSize: '0.75rem',
+                                color: 'var(--text-muted)',
                                 userSelect: 'none',
-                                outline: 'none'
+                                outline: 'none',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                background: 'rgba(255,255,255,0.02)'
                             }}>
-                                💭 Internal Thoughts
+                                <span className="thought-icon" style={{ opacity: 0.7 }}>🧠</span>
+                                <span style={{ textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+                                    {msg.content ? 'Reasoning History' : 'DeepThink Reasoning...'}
+                                </span>
                             </summary>
                             <div className="thought-content" style={{
-                                padding: '12px',
-                                borderTop: '1px solid var(--border-color)',
-                                fontSize: '0.875rem',
-                                color: 'var(--text-muted)',
+                                padding: '14px',
+                                borderTop: '1px solid rgba(255,255,255,0.05)',
+                                fontSize: '0.8125rem',
+                                lineHeight: '1.6',
+                                color: 'rgba(255,255,255,0.7)',
                                 background: 'rgba(0,0,0,0.1)',
                                 whiteSpace: 'pre-wrap',
                                 fontFamily: 'var(--font-mono)'
@@ -401,24 +484,21 @@ function AgentChat({
                     messages.filter(m => m.type !== 'agent_status').map(renderMessage)
                 )}
 
-                {/* Agent Status (Background Tasks) */}
-                {agentStatus && (
-                    <div className="status-message-inline">
-                        <span className="status-spinner-small">⏳</span>
-                        <span>{agentStatus}</span>
-                    </div>
-                )}
-
                 {/* Typing Indicator */}
                 {isTyping && currentAgent && (
-                    <div className="typing-indicator">
+                    <div className="typing-indicator active">
                         <span style={{
                             fontSize: '1.25rem',
                             marginRight: '8px'
                         }}>
                             {AGENTS[currentAgent.name]?.emoji || '🤖'}
                         </span>
-                        <span>{currentAgent.name} is thinking</span>
+                        <div className="typing-text-container">
+                            <span className="typing-name">{currentAgent.name}</span>
+                            <span className="typing-status">
+                                {agentStatus ? agentStatus.replace('...', '') : 'is currently working'}...
+                            </span>
+                        </div>
                         <div className="typing-dots">
                             <div className="typing-dot" />
                             <div className="typing-dot" />

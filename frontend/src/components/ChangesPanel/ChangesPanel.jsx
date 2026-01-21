@@ -150,6 +150,14 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
                             }} title={change.path}>
                                 {change.path}
                             </span>
+                            <div style={{ display: 'flex', gap: '8px', fontSize: '0.65rem', marginTop: '2px', opacity: 0.7 }}>
+                                {change.agent && (
+                                    <span style={{ color: 'var(--neon-blue)' }}>👤 {change.agent}</span>
+                                )}
+                                {change.created_at && (
+                                    <span>🕒 {new Date(change.created_at).toLocaleTimeString()}</span>
+                                )}
+                            </div>
                         </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }}>
@@ -169,8 +177,8 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
                                 fontSize: '0.875rem'
                             }}>
                                 <ReactDiffViewer
-                                    oldValue={change.action === 'create' ? change.new_content : (change.old_content || '')}
-                                    newValue={change.action === 'create' ? '' : (change.new_content || '')}
+                                    oldValue={change.action === 'create' ? '' : (change.old_content || '')}
+                                    newValue={change.action === 'delete' ? '' : (change.new_content || '')}
                                     splitView={true}
                                     compareMethod="diffWords"
                                     useDarkTheme={true}

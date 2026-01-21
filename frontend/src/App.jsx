@@ -9,6 +9,7 @@ import ResearchPanel from './components/ResearchPanel/ResearchPanel'
 import ChangesPanel from './components/ChangesPanel/ChangesPanel'
 import ApprovalModal from './components/ApprovalModal/ApprovalModal'
 import DeepResearchView from './components/ResearchPanel/DeepResearchView'
+import TimelineView from './components/Timeline/TimelineView'
 
 // Hooks
 import { useWebSocket } from './hooks/useWebSocket'
@@ -38,6 +39,7 @@ function App() {
   const [isDeepResearching, setIsDeepResearching] = useState(false)
   const [currentResearchStatus, setCurrentResearchStatus] = useState('')
   const [researchReport, setResearchReport] = useState(null)
+  const [timeline, setTimeline] = useState([]) // New activity timeline
 
   // Handle incoming WebSocket messages
   const handleMessage = useCallback((data) => {
@@ -45,46 +47,63 @@ function App() {
       case 'agent_start':
         setIsTyping(true)
         setCurrentAgent(data)
+        setTimeline(prev => [{
+          id: `start-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: 'agent_start',
+          message: `${data.agent} started working`,
+          agent: data.agent,
+          timestamp: new Date()
+        }, ...prev].slice(0, 50))
         break
 
       case 'thought':
-        // Update last message with thoughts
         setMessages(prev => {
-          const updated = [...prev]
-          if (updated.length > 0 && updated[updated.length - 1].agent === data.agent) {
-            updated[updated.length - 1].thoughts =
-              (updated[updated.length - 1].thoughts || '') + data.content
+          // Find the index of the message to update
+          const index = prev.findLastIndex(m => m.agent === data.agent && !m.complete);
+
+          if (index !== -1) {
+            // Immutable update: create a new array and a new object for the updated message
+            const updated = [...prev];
+            updated[index] = {
+              ...updated[index],
+              thoughts: (updated[index].thoughts || '') + (data.content || '')
+            };
+            return updated;
+          } else {
+            // Create a new message shell if not found
+            return [...prev, {
+              id: `thought-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              agent: data.agent,
+              content: '',
+              thoughts: data.content || '',
+              timestamp: new Date(),
+              complete: false
+            }];
           }
-          return updated
         })
         break
 
       case 'message':
-        // Update or create message
         setMessages(prev => {
-          const updated = [...prev]
-          // Find the last real message (not status/handoff) from this agent
-          let lastMsg = null
-          for (let i = updated.length - 1; i >= 0; i--) {
-            if (updated[i].agent === data.agent && !updated[i].type) {
-              lastMsg = updated[i]
-              break
-            }
-          }
+          const index = prev.findLastIndex(m => m.agent === data.agent && !m.complete);
 
-          if (lastMsg && !lastMsg.complete) {
-            lastMsg.content += data.content
+          if (index !== -1) {
+            const updated = [...prev];
+            updated[index] = {
+              ...updated[index],
+              content: (updated[index].content || '') + (data.content || '')
+            };
+            return updated;
           } else {
-            updated.push({
-              id: Date.now(),
+            return [...prev, {
+              id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               agent: data.agent,
-              content: data.content,
+              content: data.content || '',
               thoughts: '',
               timestamp: new Date(),
               complete: false
-            })
+            }];
           }
-          return updated
         })
         break
 
@@ -93,7 +112,7 @@ function App() {
         setMessages(prev => {
           const updated = prev.map(m => ({ ...m, complete: true }))
           updated.push({
-            id: Date.now(),
+            id: `handoff-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             type: 'handoff',
             from: data.from_agent,
             to: data.to_agent,
@@ -102,6 +121,13 @@ function App() {
           return updated
         })
         setCurrentAgent({ name: data.to_agent })
+        setTimeline(prev => [{
+          id: `handoff-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: 'handoff',
+          message: `Passing project to ${data.to_agent}`,
+          agent: 'System',
+          timestamp: new Date()
+        }, ...prev].slice(0, 50))
         break
 
       case 'file_change':
@@ -112,47 +138,70 @@ function App() {
           return [...prev, data];
         })
         setRightPanelTab('changes') // Automatically switch to changes tab
+        setTimeline(prev => [{
+          id: `edit-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: 'edit',
+          message: `Proposed ${data.action} for ${data.path}`,
+          agent: data.agent,
+          timestamp: new Date()
+        }, ...prev].slice(0, 50))
         break
 
       case 'message_update':
         if (data.concise_message) {
           setMessages(prev => {
-            const updated = [...prev]
-            // Find the last non-user message
-            for (let i = updated.length - 1; i >= 0; i--) {
-              if (!updated[i].isUser && updated[i].type !== 'handoff') {
-                updated[i].concise_message = data.concise_message
-                // Mark as having a concise version
-                break
-              }
+            const index = prev.findLastIndex(m => !m.isUser && m.type !== 'handoff');
+            if (index !== -1) {
+              const updated = [...prev];
+              updated[index] = { ...updated[index], concise_message: data.concise_message };
+              return updated;
             }
-            return updated
+            return prev;
           })
         }
         break
 
       case 'agent_status':
-        // Update research status if we are researching
+        // Update research status if we are researching (but don't force tab switch)
         const statusLower = data.status?.toLowerCase() || '';
         if (statusLower.includes('research') || statusLower.includes('search') || statusLower.includes('synthesis') || statusLower.includes('analyz')) {
           setCurrentResearchStatus(data.status)
           setIsDeepResearching(true)
-          // Optionally switch to research tab automatically
-          if (mainTab !== 'deep-research') setMainTab('deep-research')
+          // Removed: automatic tab switch to keep chat and research separate as requested
         }
 
         // Still add to messages for the log
         setMessages(prev => [...prev, {
-          id: Date.now(),
+          id: `status-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           type: 'agent_status',
           status: data.status,
           agent: data.agent,
           timestamp: new Date()
         }])
+
+        setTimeline(prev => [{
+          id: `status-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: 'status',
+          message: data.status,
+          agent: data.agent || 'System',
+          timestamp: new Date()
+        }, ...prev].slice(0, 50))
         break
 
       case 'research_report':
         setResearchReport(data.content)
+        break
+
+      case 'dev_log':
+        // Show in console for depth
+        console.log(`%c[${data.level?.toUpperCase() || 'INFO'}] %c${data.message}`,
+          'color: #00ff88; font-weight: bold;',
+          'color: #ffffff;');
+
+        // Also show as a temporary toast/badge if it's a cue
+        if (data.message.includes('triggered cues')) {
+          showToast(data.message.split('triggered cues: ')[1], '🎯')
+        }
         break
 
       case 'research_results':
@@ -164,22 +213,15 @@ function App() {
       case 'complete':
         setIsTyping(false)
         setCurrentAgent(null)
-        setIsDeepResearching(false) // Stop research overlay when finished
+        setIsDeepResearching(false)
         if (data.message && data.message.includes('stopped')) {
           setIsStopped(true)
         }
         setMessages(prev => {
-          const updated = prev.map(m => ({ ...m, complete: true }))
-          // Add mission completion message if it's the final end of sequence
-          if (data.type === 'complete') {
-            updated.push({
-              id: Date.now(),
-              type: 'mission_complete',
-              agent: 'System',
-              timestamp: new Date()
-            })
-          }
-          return updated
+          const updated = prev.map(m => ({ ...m, complete: true }));
+          // Only show mission complete card if it's explicitly final
+          // Project completion card removed as requested
+          return updated;
         })
         fetchUsage()
         break
@@ -187,7 +229,7 @@ function App() {
       case 'error':
         setIsTyping(false)
         setMessages(prev => [...prev, {
-          id: Date.now(),
+          id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           agent: data.agent,
           content: `❌ Error: ${data.content}`,
           isError: true,
@@ -208,6 +250,18 @@ function App() {
   } = useWebSocket(`ws://127.0.0.1:8000/ws/agents`, {
     onMessage: handleMessage
   })
+
+  // Optimistic Stop Handler
+  const handleStopAgent = useCallback(() => {
+    console.log('🛑 [App] User requested stop - updating UI immediately');
+    stopAgent()
+    // Optimistic state updates
+    setIsTyping(false)
+    setIsDeepResearching(false)
+    setIsStopped(true)
+    // We keep currentAgent briefly so the chat doesn't jump, 
+    // but the typing indicator logic in AgentChat depends on isTyping, so it will hide.
+  }, [stopAgent])
 
   // Auto-sync: Poll for file changes every 2 seconds
   useEffect(() => {
@@ -446,7 +500,7 @@ function App() {
     setMessages(prev => [
       ...prev.map(m => ({ ...m, complete: true })),
       {
-        id: Date.now(),
+        id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         agent: 'User',
         content: message,
         isUser: true,
@@ -737,7 +791,7 @@ function App() {
     setMessages(prev => [
       ...prev.map(m => ({ ...m, complete: true })),
       {
-        id: Date.now(),
+        id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         agent: 'User',
         content: `🔬 Deep Research: ${query}`,
         isUser: true,
@@ -793,6 +847,12 @@ function App() {
               🕵️‍♂️ DEEP RESEARCH
               {isDeepResearching && <span className="pulse-dot active"></span>}
             </button>
+            <button
+              className={`main-tab-btn timeline ${mainTab === 'timeline' ? 'active' : ''}`}
+              onClick={() => setMainTab('timeline')}
+            >
+              📜 LIVE TIMELINE
+            </button>
           </div>
 
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -803,13 +863,15 @@ function App() {
                 currentAgent={currentAgent}
                 onSendMessage={sendChatMessage}
                 isConnected={isConnected}
-                onStop={stopAgent}
+                onStop={handleStopAgent}
                 isStopped={isStopped}
                 attachedFiles={attachedFiles}
                 onAttachFiles={attachFiles}
                 onRemoveFile={removeAttachedFile}
                 onShowChanges={() => setRightPanelTab('changes')}
               />
+            ) : mainTab === 'timeline' ? (
+              <TimelineView timeline={timeline} />
             ) : (
               <DeepResearchView
                 results={researchResults}
