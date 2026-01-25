@@ -344,6 +344,14 @@ class BaseAgent(ABC):
                 if chunk.text:
                     yield chunk.text
         except Exception as e:
+            # Catch 503 Overloaded
+            if ("503" in str(e) or "overloaded" in str(e).lower()) and retry_count < max_retries:
+                print(f"🔄 [Gemini] {self.name}: 503 Overloaded, retrying (attempt {retry_count + 1}/{max_retries})...")
+                await asyncio.sleep(2) # Backoff
+                async for chunk in self._stream_gemini(prompt, retry_count + 1):
+                    yield chunk
+                return
+                
             print(f"❌ [Gemini] {self.name} ERROR: {e}")
             raise
     

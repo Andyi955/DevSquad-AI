@@ -45,9 +45,9 @@ describe('Sidebar Component', () => {
     });
 
     it('calls onClearWorkspace when the clear button is clicked', () => {
-        const props = { ...defaultProps, files: [{ name: 'test.py', size: 100 }] };
+        const props = { ...defaultProps, workspacePath: 'C:\\Project', files: [{ name: 'test.py', size: 100 }] };
         render(<Sidebar {...props} />);
-        const clearBtn = screen.getByTitle('Clear View (files stay on disk)');
+        const clearBtn = screen.getByTitle('Close current project');
         fireEvent.click(clearBtn);
         expect(defaultProps.onClearWorkspace).toHaveBeenCalled();
     });

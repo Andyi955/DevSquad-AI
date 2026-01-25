@@ -13,7 +13,6 @@ function Sidebar({ files, selectedFile, onSelectFile, onUpload, onAttachFiles, o
     const [isRootExpanded, setIsRootExpanded] = useState(true)
     const [creatingItem, setCreatingItem] = useState(null) // { type: 'file' | 'folder', path: 'parent/path' }
     const fileInputRef = useRef(null)
-    const folderInputRef = useRef(null)
 
     const handleDragOver = (e) => {
         e.preventDefault()
@@ -110,96 +109,69 @@ function Sidebar({ files, selectedFile, onSelectFile, onUpload, onAttachFiles, o
 
     return (
         <aside className="sidebar" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-md)' }}>
-                <h3 style={{ margin: 0 }}>📁 Projects</h3>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button
-                        onClick={onOpenFolder}
-                        title="Open Folder (native picker)"
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--text-muted)',
-                            cursor: 'pointer',
-                            fontSize: '1rem',
-                            padding: '4px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            transition: 'color 0.2s'
-                        }}
-                        onMouseEnter={(e) => e.target.style.color = 'var(--neon-purple)'}
-                        onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
-                    >
-                        📂↗️
-                    </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: 'var(--space-lg)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', letterSpacing: '0.05em' }}>📁 WORKSPACE</h3>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                        {workspacePath && (
+                            <button
+                                onClick={onClearWorkspace}
+                                title="Close current project"
+                                className="icon-btn-danger"
+                                style={{
+                                    background: 'rgba(239, 68, 68, 0.1)',
+                                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                                    color: '#ef4444',
+                                    padding: '4px 8px',
+                                    borderRadius: '6px',
+                                    fontSize: '0.75rem',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                }}
+                            >
+                                <span>Close</span>
+                                🗑️
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                <button
+                    className="btn btn-primary"
+                    onClick={onOpenFolder}
+                    style={{
+                        width: '100%',
+                        justifyContent: 'center',
+                        padding: '10px',
+                        background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-blue))',
+                        boxShadow: '0 4px 12px rgba(147, 51, 234, 0.3)'
+                    }}
+                >
+                    📂 OPEN PROJECT FOLDER
+                </button>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
                     <button
                         onClick={handleCreateFile}
-                        title="New File"
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--text-muted)',
-                            cursor: 'pointer',
-                            fontSize: '1rem',
-                            padding: '4px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            transition: 'color 0.2s'
-                        }}
-                        onMouseEnter={(e) => e.target.style.color = 'var(--neon-cyan)'}
-                        onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
+                        className="btn btn-secondary"
+                        style={{ flex: 1, fontSize: '0.75rem', padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                     >
-                        📄+
+                        📄 New File
                     </button>
                     <button
                         onClick={handleCreateFolder}
-                        title="New Folder"
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--text-muted)',
-                            cursor: 'pointer',
-                            fontSize: '1rem',
-                            padding: '4px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            transition: 'color 0.2s'
-                        }}
-                        onMouseEnter={(e) => e.target.style.color = 'var(--neon-purple)'}
-                        onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
+                        className="btn btn-secondary"
+                        style={{ flex: 1, fontSize: '0.75rem', padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                     >
-                        📂+
+                        📁 New Folder
                     </button>
-                    {files.length > 0 && (
-                        <button
-                            onClick={onClearWorkspace}
-                            title="Clear View (files stay on disk)"
-                            style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color: 'var(--text-muted)',
-                                cursor: 'pointer',
-                                fontSize: '1rem',
-                                padding: '4px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                transition: 'color 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.target.style.color = '#ef4444'}
-                            onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
-                        >
-                            🗑️
-                        </button>
-                    )}
                 </div>
             </div>
 
 
-            {/* Upload Zone */}
+            {/* Upload Zone (Files Only Now) */}
             <div
                 className={`upload-zone ${isDragOver ? 'drag-over' : ''}`}
                 onDragOver={handleDragOver}
@@ -213,27 +185,19 @@ function Sidebar({ files, selectedFile, onSelectFile, onUpload, onAttachFiles, o
                     border: '1px dashed var(--border-color)',
                     borderRadius: 'var(--radius-lg)',
                     marginBottom: 'var(--space-md)',
-                    background: isDragOver ? 'rgba(147, 51, 234, 0.1)' : 'transparent'
+                    background: isDragOver ? 'rgba(147, 51, 234, 0.1)' : 'transparent',
+                    opacity: 0.8
                 }}
             >
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '4px' }}>
+                    Quick Upload (Files Only)
+                </div>
                 <button
                     className="btn btn-secondary"
                     onClick={() => fileInputRef.current?.click()}
-                    style={{ width: '100%', justifyContent: 'flex-start', fontSize: '0.8rem' }}
+                    style={{ width: '100%', justifyContent: 'center', fontSize: '0.8rem', padding: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}
                 >
-                    📄 Upload Files
-                </button>
-
-                <button
-                    className="btn btn-secondary"
-                    onClick={() => {
-                        // Reset folder input value to allow re-uploading the same folder
-                        if (folderInputRef.current) folderInputRef.current.value = ''
-                        folderInputRef.current?.click()
-                    }}
-                    style={{ width: '100%', justifyContent: 'flex-start', fontSize: '0.8rem' }}
-                >
-                    📂 Upload Folder
+                    📤 Select Files
                 </button>
 
                 {/* File Input */}
@@ -245,23 +209,7 @@ function Sidebar({ files, selectedFile, onSelectFile, onUpload, onAttachFiles, o
                     onChange={(e) => {
                         const selectedFiles = Array.from(e.target.files)
                         if (selectedFiles.length > 0) {
-                            onUpload(selectedFiles, false) // false = don't reset workspace
-                        }
-                    }}
-                />
-
-                {/* Folder Input */}
-                <input
-                    ref={folderInputRef}
-                    type="file"
-                    webkitdirectory="true"
-                    directory="true"
-                    multiple
-                    style={{ display: 'none' }}
-                    onChange={(e) => {
-                        const selectedFiles = Array.from(e.target.files)
-                        if (selectedFiles.length > 0) {
-                            onUpload(selectedFiles, true) // true = clear workspace state for new folder
+                            onUpload(selectedFiles, false)
                         }
                     }}
                 />
@@ -320,7 +268,7 @@ function Sidebar({ files, selectedFile, onSelectFile, onUpload, onAttachFiles, o
                     </div>
                 )}
 
-                {!workspacePath && files.length === 0 ? (
+                {!workspacePath ? (
                     <div style={{
                         display: 'flex',
                         flexDirection: 'column',
@@ -339,28 +287,36 @@ function Sidebar({ files, selectedFile, onSelectFile, onUpload, onAttachFiles, o
                         >
                             📂 Open Folder
                         </button>
-                        <p style={{
-                            marginTop: 'var(--space-md)',
-                            fontSize: '0.75rem',
-                            opacity: 0.7
-                        }}>
-                            or drag & drop files above
-                        </p>
                     </div>
                 ) : (
                     isRootExpanded && (
-                        <FileTree
-                            files={files}
-                            onSelect={onSelectFile}
-                            selectedFile={selectedFile}
-                            onUploadToPath={onUploadToPath}
-                            onMoveItem={onMoveItem}
-                            onRenameItem={onRenameItem}
-                            onAttachFiles={onAttachFiles}
-                            creatingItem={creatingItem}
-                            onCreateSubmit={handleCreateSubmit}
-                            onCreateCancel={handleCreateCancel}
-                        />
+                        files.length === 0 ? (
+                            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', opacity: 0.7 }}>
+                                <i>Empty Project</i>
+                                <div style={{ marginTop: '10px' }}>
+                                    <button
+                                        onClick={onOpenFolder}
+                                        className="btn btn-secondary"
+                                        style={{ fontSize: '0.8rem', padding: '4px 8px' }}
+                                    >
+                                        📂 Switch Project
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <FileTree
+                                files={files}
+                                onSelect={onSelectFile}
+                                selectedFile={selectedFile}
+                                onUploadToPath={onUploadToPath}
+                                onMoveItem={onMoveItem}
+                                onRenameItem={onRenameItem}
+                                onAttachFiles={onAttachFiles}
+                                creatingItem={creatingItem}
+                                onCreateSubmit={handleCreateSubmit}
+                                onCreateCancel={handleCreateCancel}
+                            />
+                        )
                     )
                 )}
             </div>

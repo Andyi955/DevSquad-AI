@@ -2,6 +2,23 @@
 
 All notable changes to the DevSquad AI project.
 
+## [2026-01-25]
+
+### 💻 Terminal & Task Execution
+- **Embedded PowerShell (Windows)**: Moved to PowerShell as the mandatory shell on Windows to eliminate character-by-character echo "noise" from CMD.
+- **Log Debouncing**: Implemented a buffering system for terminal output. Groups output into meaningful chunks before broadcasting, preventing AI context pollution.
+- **Fuzzy Echo Filtering**: Improved system command detection. The UI now hides internal commands (like workspace syncing) more reliably across different shell types.
+- **`RUN_COMMAND` Support**: Agents can now execute general shell commands for verification and build tasks.
+
+### 🤖 Multi-Agent Synergy
+- **Squad Model Migration**: All agents (Senior, Junior, Tester, Research) now use **`gemini-3-flash-preview`** for unified high-speed reasoning.
+- **Race Condition Fix**: Re-architected Orchestrator turn logic. Automated tasks (like `RUN_TESTS`) are now strictly queued until file review/approval is complete.
+- **Junior Dev Hardening**: Expanded the primary system prompt and recovery prompts for the Junior Dev to ensure strict cue adherence and formatting.
+
+### 🐛 Stability Fixes
+- **Module Path Heuristics**: Added auto-correction for Windows-specific test commands (aliasing `python3` to `python` and fixing `unittest -m` module resolution).
+- **Workspace Syncing**: Refined terminal path normalization for synced workspaces.
+
 ## [2026-01-21]
 
 ### ⚡ Performance & Stability

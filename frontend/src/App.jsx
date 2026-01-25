@@ -10,6 +10,8 @@ import ChangesPanel from './components/ChangesPanel/ChangesPanel'
 import ApprovalModal from './components/ApprovalModal/ApprovalModal'
 import DeepResearchView from './components/ResearchPanel/DeepResearchView'
 import TimelineView from './components/Timeline/TimelineView'
+import TerminalComponent from './components/Terminal' // Import Terminal
+
 
 // Hooks
 import { useWebSocket } from './hooks/useWebSocket'
@@ -40,6 +42,9 @@ function App() {
   const [currentResearchStatus, setCurrentResearchStatus] = useState('')
   const [researchReport, setResearchReport] = useState(null)
   const [timeline, setTimeline] = useState([]) // New activity timeline
+  const [hasTerminalActivity, setHasTerminalActivity] = useState(false) // Notification dot for terminal
+
+
 
   // Handle incoming WebSocket messages
   const handleMessage = useCallback((data) => {
@@ -354,6 +359,8 @@ function App() {
   }
 
   const uploadFiles = async (fileList, resetWorkspace = false) => {
+    console.log('🚀 [App] uploadFiles called. Files:', fileList.length, 'Reset:', resetWorkspace);
+
     // If resetting, clear workspace first
     if (resetWorkspace) {
       // confirm removed as per user request
@@ -424,18 +431,26 @@ function App() {
       if (detectedProject) {
         setActiveProject(detectedProject)
 
-        // Find the absolute path to this project by joining with projects root logic
-        // We can get the base path from the result of the upload or just rely on the backend 
-        // resolving 'projects/projectName' correctly.
-        const projectPath = `projects/${detectedProject}`;
+        // Use the absolute path returned by backend if available, otherwise fallback
+        const projectPath = data.project_path || `projects/${detectedProject}`;
         console.log('🔗 [App] Auto-attaching backend to new project:', projectPath);
+        console.log('🔗 [App] Backend returned project_path:', data.project_path);
+        console.log('🔗 [App] Detected local project name:', detectedProject);
 
         try {
-          await fetch(`${API_URL}/set-workspace`, {
+          const setWorkspaceRes = await fetch(`${API_URL}/set-workspace`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ path: projectPath })
           });
+
+          if (!setWorkspaceRes.ok) {
+            const errText = await setWorkspaceRes.text();
+            console.error('❌ [App] set-workspace failed:', errText);
+          } else {
+            console.log('✅ [App] set-workspace success');
+          }
+
           fetchFileTree();
         } catch (err) {
           console.error('Failed to auto-attach workspace:', err);
@@ -853,9 +868,16 @@ function App() {
             >
               📜 LIVE TIMELINE
             </button>
+            <button
+              className={`main-tab-btn terminal ${mainTab === 'terminal' ? 'active' : ''}`}
+              onClick={() => { setMainTab('terminal'); setHasTerminalActivity(false); }}
+            >
+              💻 TERMINAL
+              {hasTerminalActivity && <span className="pulse-dot active" style={{ backgroundColor: '#ff5555' }}></span>}
+            </button>
           </div>
 
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
             {mainTab === 'chat' ? (
               <AgentChat
                 messages={messages}
@@ -869,18 +891,70 @@ function App() {
                 onAttachFiles={attachFiles}
                 onRemoveFile={removeAttachedFile}
                 onShowChanges={() => setRightPanelTab('changes')}
+                onRunCommand={(cmd) => {
+                  // Send command to backend terminal
+                  // We need a way to send this to the terminal websocket or a separate endpoint
+                  // Ideally we reuse the existing terminal connection if possible, or just hit an endpoint
+                  // For simplicity, let's use the existing chat websocket if it supports it, 
+                  // OR better, directly use the TerminalComponent's websocket via a context/ref?
+                  // actually, let's just use a simple POST request to a new endpoint which writes to PTY
+                  // because the WebSocket ref is inside TerminalComponent.
+                  // Or we can add a helper in App.jsx to send via a new socket.
+
+                  // Simpler: Trigger a function that finds the terminal websocket.
+                  // But TerminalComponent has its own WS. 
+                  // Let's use a custom event or passed down ref?
+                  // Ref is cleaner.
+                  if (window.terminalWs && window.terminalWs.readyState === WebSocket.OPEN) {
+                    window.terminalWs.send(JSON.stringify({ type: 'input', data: cmd + '\r' }));
+                    // Switch to terminal tab so user sees it
+                    setMainTab('terminal');
+                    setHasTerminalActivity(false);
+                  } else {
+                    // Fallback or error
+                    console.error("Terminal not connected");
+                    // Try to re-establish or alert
+                    const tempWs = new WebSocket('ws://127.0.0.1:8000/ws/terminal');
+                    tempWs.onopen = () => {
+                      tempWs.send(JSON.stringify({ type: 'input', data: cmd + '\r' }));
+                      tempWs.close(); // Just one-off? No, we need output.
+                      // Actually, if Terminal is persistent (hidden), its WS should be open.
+                      // We just need access to it.
+                    };
+                    setMainTab('terminal'); // Forcing tab switch usually reconnects if it was closed
+                  }
+                }}
               />
             ) : mainTab === 'timeline' ? (
               <TimelineView timeline={timeline} />
             ) : (
-              <DeepResearchView
-                results={researchResults}
-                isResearching={isDeepResearching}
-                currentStatus={currentResearchStatus}
-                report={researchReport}
-                onSearch={doResearch}
-              />
+              // Deep Research View
+              (mainTab === 'deep-research') && (
+                <DeepResearchView
+                  results={researchResults}
+                  isResearching={isDeepResearching}
+                  currentStatus={currentResearchStatus}
+                  report={researchReport}
+                  onSearch={doResearch}
+                />
+              )
             )}
+
+            {/* Persistent Terminal Component */}
+            <div style={{
+              display: mainTab === 'terminal' ? 'block' : 'none',
+              height: '100%',
+              width: '100%'
+            }}>
+              <TerminalComponent
+                isActive={mainTab === 'terminal'}
+                onActivity={() => {
+                  if (mainTab !== 'terminal') {
+                    setHasTerminalActivity(true)
+                  }
+                }}
+              />
+            </div>
           </div>
         </main>
 

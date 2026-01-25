@@ -8,6 +8,8 @@ import './AgentChat.css'
 import ReactMarkdown from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github-dark.css'
+import RunCommandButton from './RunCommandButton'
+
 
 // Agent metadata
 const AGENTS = {
@@ -30,7 +32,8 @@ function AgentChat({
     attachedFiles = [],
     onAttachFiles,
     onRemoveFile,
-    onShowChanges
+    onShowChanges,
+    onRunCommand
 }) {
     const [input, setInput] = useState('')
     const [showContinuePrompt, setShowContinuePrompt] = useState(false)
@@ -256,6 +259,14 @@ function AgentChat({
             content = rawContent.replace(/\[→(SENIOR|JUNIOR|TESTER|RESEARCH)\]/g, (match, p1) => mentionMap[p1] || match);
         }
 
+        // Extract RUN_COMMAND match before rendering markdown
+        // We will render these as separate elements after the paragraph
+        const commandMatches = [];
+        content = content.replace(/\[RUN_COMMAND:(.+?)\]/g, (match, cmd) => {
+            commandMatches.push(cmd.trim());
+            return ''; // Remove from text flow
+        });
+
         // --- MENTION STYLING ---
         // Dynamically wrap @mentions in styled spans
         const renderStyledContent = (node) => {
@@ -388,6 +399,18 @@ function AgentChat({
                             {content}
                         </ReactMarkdown>
                         {diffSummary}
+
+                        {commandMatches.length > 0 && (
+                            <div className="command-buttons-container" style={{ marginTop: '8px' }}>
+                                {commandMatches.map((cmd, idx) => (
+                                    <RunCommandButton
+                                        key={idx}
+                                        command={cmd}
+                                        onRun={() => onRunCommand && onRunCommand(cmd)}
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* Native Collapsible Thoughts */}

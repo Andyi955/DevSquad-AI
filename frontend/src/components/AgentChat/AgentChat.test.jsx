@@ -47,7 +47,8 @@ describe('AgentChat Component', () => {
 
     it('shows typing indicator when agent is typing', () => {
         render(<AgentChat {...defaultProps} isTyping={true} currentAgent={{ name: 'Senior Dev' }} />);
-        expect(screen.getByText('Senior Dev is thinking')).toBeInTheDocument();
+        expect(screen.getByText('Senior Dev')).toBeInTheDocument();
+        expect(screen.getByText(/is currently working/i)).toBeInTheDocument();
     });
 
     it('calls onSendMessage when the form is submitted', () => {
