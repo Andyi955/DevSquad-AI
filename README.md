@@ -18,9 +18,9 @@ A fun, interactive web application where AI agents (DeepSeek & Gemini) collabora
 ## ✨ Features
 
 - **🧙 Senior Dev** (Gemini) - Architecture, planning, Mission Checklist management
-- **🐣 Junior Dev** (DeepSeek) - Implementation, code writing, bug fixes
+- **🐣 Junior Dev** (Gemini) - Implementation, code writing, bug fixes
 - **🧪 Unit Tester** (Gemini) - Test creation (Pytest/Unittest), quality assurance
-- **🔍 Researcher** (DeepSeek) - Targeted web searches, documentation lookups
+- **🔍 Researcher** (Gemini) - Targeted web searches, documentation lookups
 - **🏗️ Research Lead** (Gemini) - Deep research orchestration, report synthesis
 
 #### 🔬 Dedicated Deep Research
@@ -28,21 +28,23 @@ The Research framework uses a **Tandem Architecture** for maximum depth and spee
 1.  **Lead Architect (Gemini 3 Flash)**: Orchestrates the mission, performs high-speed web searches, and scrapes multiple sources in parallel.
 2.  **Synthesis Engine (DeepSeek V3)**: Analyzes the gathered raw data and synthesizes it into a high-impact Executive Report.
 
-### 🧠 DeepSeek "Thinking" Process
-We utilize **DeepSeek-V3** (via `deepseek-chat`) for the Junior Developer and Researcher agents to leverage its strong reasoning capabilities.
+### 🧠 Hybrid "Thinking" Process
+We utilize a combination of **Gemini 3 Flash** for development speed and **DeepSeek-V3** (via `deepseek-chat`) for the final research synthesis and complex reasoning.
 - Agents explicitly show their internal monologue using `<think>` tags.
 - This "Show Your Work" approach allows you to see *how* the agent arrived at a solution before it writes any code.
-- The **Junior Dev** uses it to plan implementation steps.
+- The **Junior Dev** and **Senior Dev** use it to plan architectural and implementation steps.
 - The **Researcher** uses it to formulate search strategies and cross-reference sources.
+- The **Summarizer** uses it to analyze multi-source data for the final report.
 
 ### Highlights
 - 🎬 **Real-time streaming** - Watch agents think and respond live
 - 📝 **Mission Checklists** - Agents create and track multi-step plans automatically
+- 💻 **Terminal Integration** - Embedded PowerShell terminal with automated task execution
+- 🧪 **Smart Test Runner** - Agents can write AND run tests (`pytest`, `unittest`) autonomously
 - ⚡ **Optimistic UI** - Instant feedback for stop actions and state changes
 - 📎 **File Context** - Intelligent file reading (only reads what is needed)
 - 🔒 **Safe Switch Management** - Dynamically switch between project folders without data loss
 - 🌈 **Color-coded Diffs** - Visual representation of code additions and removals
-- 🎨 **Neon dark theme** - Beautiful UI with fun animations
 - 📊 **Usage tracking** - Monitor API usage and costs
 
 ---
@@ -146,6 +148,8 @@ The application is designed around a **State Machine pattern** where each AI age
 - **Mission Checklists**: The Senior Dev breaks down complex requests into a step-by-step `[MISSION_CHECKLIST]`. Agents execute one step at a time and mark it complete.
 - **Autonomous Delegation**: Agents decide who is best suited for the next step (e.g., Senior Dev hands off implementation to Junior Dev, who hands off to Unit Tester).
 - **The Orchestrator**: The central `orchestrator.py` manages the "handoff" logic, parsing `[→AGENT]` cues and ensuring strict sequential execution.
+- **Terminal & Task Safety**: On Windows, PowerShell is the forced default to ensure terminal stability. The system uses log debouncing and fuzzy echo filtering to prevent terminal "noise" from cluttering the agent's context memory.
+- **Priority Review**: Agents cannot execute code until the user has approved the file changes. The orchestrator now pauses all follow-up tasks (like `RUN_TESTS`) specifically until the "Save" is confirmed.
 
 ### Agent Cue System
 Agents communicate via special cues in their responses:
@@ -162,6 +166,8 @@ Agents communicate via special cues in their responses:
 | `[EDIT_FILE:path]` | Propose file edit (requires approval) |
 | `[CREATE_FILE:path]` | Create a new file (requires approval) |
 | `[READ_FILE:path]` | Read file content in background |
+| `[RUN_TESTS:cmd]` | Automate test execution (e.g., `pytest`) |
+| `[RUN_COMMAND:cmd]` | Run general shell commands for verification |
 | `[DONE]` | End current turn |
 
 ### File Safety
@@ -234,8 +240,7 @@ MIT License - feel free to use and modify!
 
 ## 🙏 Acknowledgments
 
-- [Google Gemini](https://deepmind.google/technologies/gemini/) - AI backbone
-- [DeepSeek](https://www.deepseek.com/) - AI backbone  
+- [Google Gemini](https://deepmind.google/technologies/gemini/) - AI backbone (flash-preview-series)
 - [Playwright](https://playwright.dev/) - Browser automation
 - [FastAPI](https://fastapi.tiangolo.com/) - Backend framework
 - [React](https://react.dev/) - Frontend framework

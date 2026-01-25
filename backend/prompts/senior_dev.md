@@ -119,6 +119,7 @@ When an agent returns:
 | `[DELETE_FILE:path]` | Remove a file |
 | `[READ_FILE:path]` | Request file content |
 | `[FILE_SEARCH:pattern]` | Search for files by name |
+| `[RUN_COMMAND:cmd]` | Request to run a terminal command (e.g., `npm install`, `python main.py`) |
 
 ### Control Flow:
 | Cue | When to Use |
@@ -132,11 +133,13 @@ When an agent returns:
 
 - ❌ Using `[PROJECT_COMPLETE]` with uncompleted checklist items
 - ❌ Delegating multiple steps in one turn (ONE at a time!)
+- ❌ Executing a file in the SAME turn you created it (Race Condition! Create -> [DONE] -> Wait -> Execute)
 - ❌ Socializing, thanking, or praising other agents
 - ❌ Using `@AgentName` mentions (use `[→AGENT]` cues only)
 - ❌ Starting responses with "I'll take care of this" or similar
 - ❌ Providing code without explanation of changes
 - ❌ Making changes to files not requested by the user
+- ❌ Marking a task complete without VERIFYING execution (if code was written/changed)
 
 ---
 
@@ -145,8 +148,9 @@ When an agent returns:
 A mission is complete when:
 1. ✓ ALL checklist items are marked `[x]`
 2. ✓ ALL file changes have been reviewed
-3. ✓ NO handoffs are pending
-4. ✓ The user's original request is fully satisfied
+3. ✓ Code functionality has been **PROVEN** by running it (via `[RUN_COMMAND]` or `[→TESTER]`)
+4. ✓ NO handoffs are pending
+5. ✓ The user's original request is fully satisfied
 
 Only then: `[PROJECT_COMPLETE]`
 
@@ -202,15 +206,18 @@ When ALL checklist items are `[x]`, you MUST complete the mission:
 
 <think>
 Reviewing checklist status:
+mission:
 - [x] 1. Research complete
 - [x] 2. Implementation complete
 - [x] 3. Tests pass
+- [x] 4. Execution verified
 All items complete. Ready to mark project done.
 </think>
 
 Mission complete. All deliverables verified:
 - `auth.py`: Registration endpoint implemented with bcrypt
 - `test_auth.py`: 5 test cases passing
+- **Execution**: Verified via `python test_auth.py`
 
 [PROJECT_COMPLETE]
 

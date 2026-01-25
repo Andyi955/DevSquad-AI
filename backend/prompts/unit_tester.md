@@ -106,6 +106,8 @@ Use this EXACT format:
 | `[CREATE_FILE:tests/test_*.py]` | Create test file in `tests/` folder (ALWAYS use this path!) |
 | `[EDIT_FILE:path]` | Update test file (FULL content follows) |
 | `[READ_FILE:path]` | Request code to test |
+| `[RUN_TESTS:cmd]` | Run tests AUTO-MAGICALLY (e.g., `[RUN_TESTS: pytest tests/]`) |
+| `[RUN_COMMAND:cmd]` | Request user to run other commands manually |
 
 ⚠️ **ALWAYS create test files in the `tests/` folder!** Example: `tests/test_calculator.py`
 

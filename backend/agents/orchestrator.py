@@ -305,7 +305,19 @@ class AgentOrchestrator:
             query = match.group(1).strip().strip('"').strip("'")
             cue_hits.append((match.start(), f"SUB_RESEARCH:{query}"))
 
-        # 10. Check for DONE cue
+        # 10. Find run command cues
+        run_command_pattern = r'\[RUN_COMMAND:([^\]]+)\]'
+        for match in re.finditer(run_command_pattern, content):
+            cmd = match.group(1).strip()
+            cue_hits.append((match.start(), f"RUN_COMMAND:{cmd}"))
+
+        # 11. Find run tests cues
+        run_tests_pattern = r'\[RUN_TESTS:([^\]]+)\]'
+        for match in re.finditer(run_tests_pattern, content):
+            cmd = match.group(1).strip()
+            cue_hits.append((match.start(), f"RUN_TESTS:{cmd}"))
+
+        # 12. Check for DONE cue
         if "[DONE]" in content:
             pos = content.rfind("[DONE]")
             cue_hits.append((pos, "DONE"))
@@ -773,6 +785,30 @@ class AgentOrchestrator:
                     "content": clean_full_response
                 }
             
+            # 1. PRIORITIZE FILE REVIEW PAUSE
+            # If any file edits were proposed, we MUST pause here to let the user review
+            # BEFORE we process any "continue" cues like READ_FILE or RUN_TESTS.
+            # This prevents race conditions where agents try to read/run code that isn't on disk yet.
+            if file_edit_proposed:
+                # Calculate potential handoff now so we can resume correctly after approval
+                cues_for_handoff = [c for c in cues if c in self.CUE_TO_AGENT]
+                handoff_agent = None
+                if cues_for_handoff:
+                    # If they explicitly handed off, save it
+                    handoff_agent = self.CUE_TO_AGENT[cues_for_handoff[0]]
+                elif self.handoff_queue:
+                    # If there's a queue, save the next one
+                    handoff_agent = self.handoff_queue[0]
+
+                print(f"⏸️ [Orchestrator] Pausing turn for file review. Pending handoff: {handoff_agent}")
+                self.last_handoff = handoff_agent
+                yield {
+                    "type": "agent_done",
+                    "agent": current_agent_name,
+                    "message": "Pausing for file review... ⏸️"
+                }
+                break
+
             # Check for file read cues
             file_read_path = None
             for cue in cues:
@@ -790,7 +826,7 @@ class AgentOrchestrator:
                 file_content = await self.file_manager.read_file(file_read_path)
                 
                 if file_content is None:
-                    current_message = f"I tried to read '{file_read_path}' but it doesn't exist or is empty."
+                    current_message = f"I tried to read '{file_read_path}' but it doesn't exist or is empty. Please verify the file path."
                 else:
                     current_message = f"Content of '{file_read_path}':\n\n```\n{file_content}\n```\n\nI have read the file. Please continue with your analysis."
                 
@@ -987,6 +1023,127 @@ class AgentOrchestrator:
                 # We continue the loop with the SAME agent but new message (findings)
                 continue
 
+            # Check for RUN_COMMAND cue
+            run_cmd = None
+            for cue in cues:
+                if cue.startswith("RUN_COMMAND:"):
+                    run_cmd = cue.split(":", 1)[1]
+                    break
+            
+            if run_cmd:
+                print(f"💻 [RUN_COMMAND] Agent requested command execution: {run_cmd}")
+                yield {
+                    "type": "agent_status",
+                    "agent": current_agent_name,
+                    "status": f"Executing command: {run_cmd}..."
+                }
+
+                try:
+                    # Fix python3 on Windows
+                    if os.name == 'nt' and run_cmd.startswith("python3 "):
+                        run_cmd = run_cmd.replace("python3 ", "python ", 1)
+
+                    # Run subprocess
+                    proc = await asyncio.create_subprocess_shell(
+                        run_cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        cwd=str(self.file_manager.workspace_path) if self.file_manager.workspace_path else os.getcwd()
+                    )
+                    stdout, stderr = await proc.communicate()
+                    
+                    output = stdout.decode('utf-8', errors='replace')
+                    if stderr:
+                        output += "\nSTDERR:\n" + stderr.decode('utf-8', errors='replace')
+                    
+                    print(f"✅ [RUN_COMMAND] Execution complete. Output len: {len(output)}")
+                    yield {
+                        "type": "dev_log",
+                        "level": "info",
+                        "message": f"💻 Command Execution Result for `{run_cmd}`:\n{output}"
+                    }
+                    
+                    current_message = f"Command `{run_cmd}` executed.\n\nOutput:\n```\n{output}\n```\n\nPlease analyze the results and proceed."
+                
+                except Exception as e:
+                    print(f"❌ [RUN_COMMAND] Execution failed: {e}")
+                    current_message = f"Failed to execute `{run_cmd}`. Error: {str(e)}"
+                
+                # Continue loop with same agent to analyze results
+                continue
+
+            # Check for RUN_TESTS cue
+            test_cmd = None
+            for cue in cues:
+                if cue.startswith("RUN_TESTS:"):
+                    test_cmd = cue.split(":", 1)[1]
+                    break
+            
+            if test_cmd:
+                print(f"🧪 [RUN_TESTS] Agent requested automated test: {test_cmd}")
+                yield {
+                    "type": "agent_status",
+                    "agent": current_agent_name,
+                    "status": f"Running tests: {test_cmd}..."
+                }
+
+                # Executing command
+                try:
+                    # Fix python3 on Windows
+                    if os.name == 'nt' and test_cmd.startswith("python3 "):
+                        test_cmd = test_cmd.replace("python3 ", "python ", 1)
+                        print(f"🔧 [RUN_TESTS] Windows detected, aliasing {test_cmd}")
+
+                    # Heuristic: If they use 'python -m unittest tests/test_file.py', it often fails 
+                    # with ModuleNotFoundError on Windows if __init__.py is missing.
+                    # We can try to clean it up to just 'python tests/test_file.py' if the file exists.
+                    if "-m unittest" in test_cmd and test_cmd.endswith(".py"):
+                        parts = test_cmd.split()
+                        file_path = parts[-1]
+                        workspace = self.file_manager.workspace_path or Path(os.getcwd())
+                        full_path = Path(workspace) / file_path
+                        if full_path.exists():
+                            # Switch to direct execution which is more reliable for simple scripts
+                            test_cmd = test_cmd.replace("-m unittest ", "")
+                            print(f"🔧 [RUN_TESTS] Auto-correcting unittest path to direct execution: {test_cmd}")
+
+                    # Run subprocess
+                    proc = await asyncio.create_subprocess_shell(
+                        test_cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        cwd=str(self.file_manager.workspace_path) if self.file_manager.workspace_path else os.getcwd()
+                    )
+                    stdout, stderr = await proc.communicate()
+                    
+                    output = stdout.decode('utf-8', errors='replace')
+                    if stderr:
+                        output += "\nSTDERR:\n" + stderr.decode('utf-8', errors='replace')
+                    
+                    print(f"✅ [RUN_TESTS] Execution complete. Output len: {len(output)}")
+                    yield {
+                        "type": "dev_log",
+                        "level": "info",
+                        "message": f"🧪 Test Execution Result for `{test_cmd}`:\n{output}"
+                    }
+                    
+                    # Also yield a special system message to show in chat
+                    yield {
+                        "type": "message",
+                        "agent": "System",
+                        "content": f"🛠️ **Automated Test Run**: `{test_cmd}`\n\n```\n{output}\n```",
+                        "complete": True
+                    }
+                    
+                    current_message = f"Command `{test_cmd}` executed.\n\nOutput:\n```\n{output}\n```\n\nPlease analyze the results. If failed, hand off to Junior Dev for fixes."
+                
+                except Exception as e:
+                    print(f"❌ [RUN_TESTS] Execution failed: {e}")
+                    current_message = f"Failed to execute `{test_cmd}`. Error: {str(e)}"
+                
+                # Continue loop with same agent to analyze results
+                continue
+
             # Check for handoff
             cues_for_handoff = [c for c in cues if c in self.CUE_TO_AGENT]
             handoff_agent = None
@@ -1011,17 +1168,14 @@ class AgentOrchestrator:
                         if extra_agent not in self.handoff_queue and extra_agent != current_agent_name:
                             self.handoff_queue.append(extra_agent)
                 else:
-                    print(f"⚠️ [Orchestrator] Handoff target same as current agent, skipping")
+                    print(f"⚠️ [Orchestrator] Handoff target same as current agent, continuing current loop")
+                    # If they cue themselves, they might just want to continue thinking/working
+                    # We can either break (end turn) or just ignore the cue.
+                    # Given the loop logic, "skipping" the cue is safer than stopping the whole loop.
+                    # But we should NOT count it as a valid handoff that ends the turn.
+                    continue
 
-            # If file edit proposed, we pause here to let user review
-            if file_edit_proposed:
-                self.last_handoff = handoff_agent
-                yield {
-                    "type": "agent_done",
-                    "agent": current_agent_name,
-                    "message": "Pausing for file review... ⏸️"
-                }
-                break
+            # (Handling of filereview pause moved earlier in the turn)
 
             # Check for PROJECT_COMPLETE - Immediate Stop
             if "PROJECT_COMPLETE" in cues:
@@ -1159,18 +1313,23 @@ class AgentOrchestrator:
             elif self.handoff_queue:
                 current_agent_name = self.handoff_queue.pop(0)
                 message = f"User approved previous changes. Now it's your turn in the mission queue."
-            else:
-                # If was_done, we might want to hand back to Senior for final check
-                if was_done and last_agent_name == "Junior Dev":
+            elif was_done:
+                # If was_done, we check if we should hand back to Senior for the next checklist item
+                if self.mission_checklist and not self._is_checklist_complete():
                     current_agent_name = "Senior Dev"
-                    message = f"The Junior Dev has finished their task and the changes were approved. Please review the result and decide on the next step."
+                    message = f"The user approved the previous step. The mission checklist is still in progress. Please review the status and trigger the next action."
                 else:
-                    current_agent_name = last_agent_name
-                    message = "Great! Changes approved. What's next?"
-            
-            # CRITICAL: Since files were just approved, they are now on disk.
-            # We don't need to pass anything extra here; the next call to 
-            # process_message_stream in main.py will handle building context.
+                    # Mission finished or no checklist
+                    self.mission_status = "IDLE"
+                    self.last_handoff = None
+                    return {
+                        "next_agent": None,
+                        "message": None
+                    }
+            else:
+                # Agent isn't done yet, just keep going
+                current_agent_name = last_agent_name
+                message = "Great! Changes approved. What's next?"
         else:
             # Rejection - stick with same agent or go to requester if feedback exists
             current_agent_name = last_agent_name
