@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import './Header.css'
 
-function Header({ isConnected, usage, onNewChat }) {
+function Header({ isConnected, usage, onNewChat, activeTab, onTabChange }) {
     return (
         <header className="header">
             <div className="logo">
@@ -22,6 +22,24 @@ function Header({ isConnected, usage, onNewChat }) {
             </div>
 
             <div className="header-actions">
+                {/* View Toggles */}
+                <div style={{ display: 'flex', gap: '8px', marginRight: '16px' }}>
+                    <button
+                        className={`btn ${activeTab === 'chat' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => onTabChange('chat')}
+                        style={{ fontSize: '0.75rem', padding: '6px 12px' }}
+                    >
+                        💬 Chat
+                    </button>
+                    <button
+                        className={`btn ${activeTab === 'dashboard' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => onTabChange('dashboard')}
+                        style={{ fontSize: '0.75rem', padding: '6px 12px' }}
+                    >
+                        📊 Dashboard
+                    </button>
+                </div>
+
                 <button
                     className="btn btn-secondary glass-card"
                     onClick={onNewChat}

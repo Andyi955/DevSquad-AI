@@ -11,6 +11,7 @@ import ApprovalModal from './components/ApprovalModal/ApprovalModal'
 import DeepResearchView from './components/ResearchPanel/DeepResearchView'
 import TimelineView from './components/Timeline/TimelineView'
 import TerminalComponent from './components/Terminal' // Import Terminal
+import Dashboard from './pages/Dashboard'
 
 
 // Hooks
@@ -828,6 +829,8 @@ function App() {
         isConnected={isConnected}
         usage={usage}
         onNewChat={handleNewChat}
+        activeTab={mainTab}
+        onTabChange={setMainTab}
       />
 
       <div className="workspace-layout">
@@ -878,7 +881,11 @@ function App() {
           </div>
 
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
-            {mainTab === 'chat' ? (
+            {mainTab === 'dashboard' ? (
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                <Dashboard />
+              </div>
+            ) : mainTab === 'chat' ? (
               <AgentChat
                 messages={messages}
                 isTyping={isTyping}

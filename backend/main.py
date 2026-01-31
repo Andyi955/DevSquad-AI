@@ -673,6 +673,23 @@ async def reject_change(data: dict):
     
     return result
 
+    return result
+
+@app.get("/reviews")
+async def get_reviews():
+    """Get review history and stats"""
+    if not orchestrator.review_service:
+        return {"reviews": [], "stats": {}}
+    return orchestrator.review_service.get_latest_data()
+
+@app.post("/reviews/apply")
+async def apply_review_suggestion(data: dict):
+    """Apply a suggestion from the review agent"""
+    if not orchestrator.review_service:
+        raise HTTPException(status_code=400, detail="Review service not active")
+    
+    return await orchestrator.review_service.apply_improvement(data)
+
 @app.get("/health")
 async def health_check():
     return {
