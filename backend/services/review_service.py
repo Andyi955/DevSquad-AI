@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import uuid
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -9,16 +10,66 @@ from services.file_manager import FileManager
 
 class ReviewService:
     """
-    Manages the background review process.
-    Stores reviews in memory and handles prompt updates.
+    Manages the background review process with session support.
+    - Current session reviews are shown in the dashboard
+    - When a new chat starts, old reviews are archived to history
+    - History is preserved across sessions
     """
     
     def __init__(self, file_manager: FileManager):
         self.reviewer = ReviewAgent()
         self.file_manager = file_manager
-        self.reviews: List[Dict[str, Any]] = [] # History of reviews
+        
+        # Current session
+        self.session_id: str = str(uuid.uuid4())[:8]
+        self.session_reviews: List[Dict[str, Any]] = []  # Reviews for current session
+        self.session_start: str = datetime.now().isoformat()
+        
+        # Historical archive (persists across sessions)
+        self.archived_sessions: List[Dict[str, Any]] = []  # List of past session summaries
+        
         self.latest_stats: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
+        
+    def start_new_session(self) -> Dict[str, Any]:
+        """
+        Start a new review session. Archives current session and resets.
+        Called when user starts a new chat.
+        """
+        # Only archive if there are reviews in the current session
+        if self.session_reviews:
+            # Calculate session summary
+            all_scores = []
+            for r in self.session_reviews:
+                for item in r.get("reviews", []):
+                    all_scores.append(item.get("score", 0))
+            
+            avg_score = round(sum(all_scores) / len(all_scores), 1) if all_scores else 0
+            
+            archived_session = {
+                "session_id": self.session_id,
+                "started_at": self.session_start,
+                "ended_at": datetime.now().isoformat(),
+                "review_count": len(self.session_reviews),
+                "average_score": avg_score,
+                "reviews": self.session_reviews  # Keep full reviews for history
+            }
+            
+            self.archived_sessions.append(archived_session)
+            print(f"📦 [ReviewService] Archived session {self.session_id} with {len(self.session_reviews)} reviews (avg: {avg_score})")
+        
+        # Reset for new session
+        self.session_id = str(uuid.uuid4())[:8]
+        self.session_reviews = []
+        self.session_start = datetime.now().isoformat()
+        self.latest_stats = {}
+        
+        print(f"🆕 [ReviewService] Started new session: {self.session_id}")
+        
+        return {
+            "session_id": self.session_id,
+            "archived_count": len(self.archived_sessions)
+        }
         
     async def trigger_review(self, conversation_history: list) -> Dict[str, Any]:
         """
@@ -33,11 +84,12 @@ class ReviewService:
             # Parse it
             review_data = json.loads(json_response)
             
-            # Timestamp it
+            # Timestamp and session tag
             review_data["timestamp"] = datetime.now().isoformat()
+            review_data["session_id"] = self.session_id
             
             async with self._lock:
-                self.reviews.append(review_data)
+                self.session_reviews.append(review_data)
                 # Update latest stats (simple aggregation for now)
                 self.latest_stats = self._calculate_stats()
                 
@@ -51,10 +103,38 @@ class ReviewService:
     def get_latest_data(self) -> Dict[str, Any]:
         """Get the latest reviews and stats for the dashboard"""
         return {
-            "reviews": self.reviews[-5:], # Last 5 reviews
+            "session_id": self.session_id,
+            "session_started": self.session_start,
+            "reviews": self.session_reviews[-10:],  # Last 10 reviews from current session
             "stats": self.latest_stats,
-            "total_reviews": len(self.reviews)
+            "total_reviews": len(self.session_reviews)
         }
+    
+    def get_history(self) -> Dict[str, Any]:
+        """Get archived session history"""
+        # Return summaries without full review content for lighter payload
+        summaries = []
+        for session in self.archived_sessions:
+            summaries.append({
+                "session_id": session["session_id"],
+                "started_at": session["started_at"],
+                "ended_at": session["ended_at"],
+                "review_count": session["review_count"],
+                "average_score": session["average_score"]
+            })
+        
+        return {
+            "current_session": self.session_id,
+            "archived_sessions": summaries,
+            "total_archived": len(self.archived_sessions)
+        }
+    
+    def get_session_details(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get full details for a specific archived session"""
+        for session in self.archived_sessions:
+            if session["session_id"] == session_id:
+                return session
+        return None
 
     async def apply_improvement(self, suggestion: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -67,37 +147,16 @@ class ReviewService:
         if not target_file or not content:
             return {"status": "error", "message": "Missing file or content"}
             
-        # For reliability, we append instructions to the end of the file for now,
-        # OR if the agent returned the FULL file, we overwrite.
-        # Let's assume the agent might return a snippet.
-        # Safer strategy: Create a pending change via FileManager so user can review diff.
-        
         try:
-            # We'll treat 'proposed_content' as a snippet to be reviewed by user.
-            # But the user asked "maybe can implement the changes".
-            # Let's try to append if it looks like a list item, or just write it.
-            
-            # Actually, the Orchestrator's `create_pending_change` is perfect here.
-            # It allows the user to accept/reject via the UI.
-            # But FileManager creates a change ID.
-            
-            # Let's read the file first to check context
+            # Read current content for context
             current_content = await self.file_manager.read_file(target_file)
             
-            # If the content is valid, we propose a change
-            # Strategy: We'll overwrite the file with the "Proposed Content" if it looks complete,
-            # Or we append it. This is tricky for an automated agent.
-            # Let's assuming the ReviewAgent is smart enough to give us a valid block.
-            
-            # For this version, we will create a NEW file with a suffix `.suggested.md`
-            # and let the user compare, OR we just use the pending change system.
-            
-            # Let's use the pending change system from FileManager
+            # Use the pending change system from FileManager
             change_id = await self.file_manager.create_pending_change(
                 path=target_file,
                 content=content,
                 agent="Review Agent",
-                action="edit" # or "audit"
+                action="edit"
             )
             
             return {
@@ -115,9 +174,9 @@ class ReviewService:
         return 0
 
     def _calculate_stats(self):
-        """Aggregate scores over time"""
+        """Aggregate scores over time for current session"""
         scores = []
-        for r in self.reviews:
+        for r in self.session_reviews:
             for item in r.get("reviews", []):
                 scores.append({
                     "timestamp": r["timestamp"],
@@ -125,3 +184,4 @@ class ReviewService:
                     "agent": item.get("agent_name", "Unknown")
                 })
         return {"history": scores}
+
