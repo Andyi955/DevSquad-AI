@@ -39,6 +39,7 @@ if IS_WINDOWS:
     try:
         from winpty import PtyProcess
     except ImportError:
+        PtyProcess = None
         print("⚠️ pywinpty not found, terminal features may not work on Windows")
 else:
     import pty
@@ -121,6 +122,9 @@ class TerminalManager:
                 # Initialize sent command queue
                 from collections import deque
                 self.last_sent_commands[client_id] = deque(maxlen=5)
+
+                if not PtyProcess:
+                    raise ImportError("pywinpty not installed. Run 'pip install pywinpty' to enable terminal support on Windows.")
 
                 process = PtyProcess.spawn(
                     [shell_cmd],
@@ -672,6 +676,53 @@ async def reject_change(data: dict):
         raise HTTPException(status_code=400, detail=result["error"])
     
     return result
+
+    return result
+
+@app.get("/reviews")
+async def get_reviews():
+    """Get review history and stats"""
+    if not orchestrator.review_service:
+        return {"reviews": [], "stats": {}}
+    return orchestrator.review_service.get_latest_data()
+
+@app.post("/reviews/apply")
+async def apply_review_suggestion(data: dict):
+    """Apply a suggestion from the review agent"""
+    if not orchestrator.review_service:
+        raise HTTPException(status_code=400, detail="Review service not active")
+    
+    return await orchestrator.review_service.apply_improvement(data)
+
+@app.post("/reviews/new-session")
+async def start_new_review_session():
+    """Start a new review session (archives current session)"""
+    if not orchestrator.review_service:
+        raise HTTPException(status_code=400, detail="Review service not active")
+    
+    # Also reset the orchestrator's conversation for a fresh start
+    orchestrator.conversation = []
+    orchestrator.turn_count = 0
+    
+    return orchestrator.review_service.start_new_session()
+
+@app.get("/reviews/history")
+async def get_review_history():
+    """Get archived review sessions"""
+    if not orchestrator.review_service:
+        return {"archived_sessions": [], "total_archived": 0}
+    return orchestrator.review_service.get_history()
+
+@app.get("/reviews/history/{session_id}")
+async def get_session_details(session_id: str):
+    """Get details for a specific archived session"""
+    if not orchestrator.review_service:
+        raise HTTPException(status_code=400, detail="Review service not active")
+    
+    session = orchestrator.review_service.get_session_details(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
 
 @app.get("/health")
 async def health_check():

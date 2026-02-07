@@ -2,6 +2,20 @@
 
 All notable changes to the DevSquad AI project.
 
+## [2026-02-07]
+
+### 🕵️‍♂️ Review Agent & Self-Improvement System
+- **Performance Dashboard**: New real-time dashboard showing agent performance scores, critique feed, and improvement suggestions
+- **Shadow Mode Analysis**: Review Agent silently observes all agent interactions in the background
+- **Automated Scoring**: Each agent response rated 0-100 on accuracy, efficiency, and style
+- **Pattern Detection**: Identifies recurring issues across multiple turns (e.g., "Junior Dev consistently forgets error handling")
+- **Prompt Engineering**: Suggests concrete improvements to system prompts with one-click apply
+- **Handoff Optimization**: Can suggest improvements to `orchestrator.py` cue detection and agent selection logic
+- **Session History**: Archives review sessions for long-term performance tracking
+
+### 🛡️ Safety Improvements
+- **Folder Selection Guard**: Toast notification prompts users to select a folder before starting chat/research (prevents workflow errors)
+
 ## [2026-01-25]
 
 ### 💻 Terminal & Task Execution

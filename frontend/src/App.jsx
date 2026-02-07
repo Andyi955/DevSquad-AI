@@ -11,6 +11,7 @@ import ApprovalModal from './components/ApprovalModal/ApprovalModal'
 import DeepResearchView from './components/ResearchPanel/DeepResearchView'
 import TimelineView from './components/Timeline/TimelineView'
 import TerminalComponent from './components/Terminal' // Import Terminal
+import Dashboard from './pages/Dashboard'
 
 
 // Hooks
@@ -511,6 +512,12 @@ function App() {
   const sendChatMessage = useCallback(async (message) => {
     if (!isConnected || !message.trim()) return
 
+    // Check if folder is selected - show nice notification if not
+    if (!workspacePath && fileTree.length === 0) {
+      showToast('Please select a folder first to start working 📂', '💡')
+      return
+    }
+
     // Add user message and mark ALL previous as complete
     setMessages(prev => [
       ...prev.map(m => ({ ...m, complete: true })),
@@ -794,6 +801,12 @@ function App() {
       return
     }
 
+    // Check if folder is selected - show nice notification if not
+    if (!workspacePath && fileTree.length === 0) {
+      showToast('Please select a folder first to start working 📂', '💡')
+      return
+    }
+
     console.log('🔬 [App] Starting deep research via WebSocket:', query)
 
     // Reset previous results
@@ -828,6 +841,8 @@ function App() {
         isConnected={isConnected}
         usage={usage}
         onNewChat={handleNewChat}
+        activeTab={mainTab}
+        onTabChange={setMainTab}
       />
 
       <div className="workspace-layout">
@@ -878,7 +893,11 @@ function App() {
           </div>
 
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
-            {mainTab === 'chat' ? (
+            {mainTab === 'dashboard' ? (
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                <Dashboard />
+              </div>
+            ) : mainTab === 'chat' ? (
               <AgentChat
                 messages={messages}
                 isTyping={isTyping}

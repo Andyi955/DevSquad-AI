@@ -18,6 +18,7 @@ from .unit_tester import UnitTesterAgent
 from .researcher import ResearcherAgent
 from .research_lead import ResearchLeadAgent
 from .summarizer import SummarizerAgent
+from services.review_service import ReviewService
 
 
 @dataclass
@@ -58,6 +59,11 @@ class AgentOrchestrator:
         self.mission_status = "IDLE"
         self._stop_event = asyncio.Event()
         
+        # Review Service
+        self.review_service = None
+        if self.file_manager:
+            self.review_service = ReviewService(self.file_manager)
+
         # Mission Checklist tracking
         self.mission_checklist: List[dict] = []  # [{step: str, agent: str, done: bool}]
         self.mission_description: str = ""
@@ -641,6 +647,10 @@ class AgentOrchestrator:
             #     print(f"   📝 Response length: {len(full_response)} chars")
             #     print(f"   📝 Response tail: {response_preview[:200]}...")
             
+            # Trigger Background Review (Async - Fire and Forget)
+            if self.review_service and turn % 2 == 0:  # Review every 2 turns to save tokens
+                asyncio.create_task(self._trigger_background_review())
+
             # Process Mission Checklist cues
             if self._extract_mission_checklist(full_response):
                 yield {
@@ -755,6 +765,28 @@ class AgentOrchestrator:
                 for r in replacements:
                     temp_clean = temp_clean[:r["start"]] + r["text"] + temp_clean[r["end"]:]
                 clean_full_response = self._clean_message_for_display(temp_clean)
+
+            # --- BUG FIX: EMPTY BUBBLE ---
+            # If the agent said nothing human-readable but did something (cues),
+            # provide a status message so there's not an empty bubble in UI.
+            if not clean_full_response.strip() and cues:
+                # Determine action from cues
+                action_desc = "Working..."
+                for cue in cues:
+                    if cue.startswith("READ:"): action_desc = f"Reading {cue.split(':')[1]}"
+                    elif cue.startswith("READ_URL:"): action_desc = f"Reading external site"
+                    elif cue.startswith("SEARCH:"): action_desc = f"Searching web"
+                    elif cue.startswith("SUB_RESEARCH:"): action_desc = f"Initializing sub-research"
+                    elif cue.startswith("RUN_"): action_desc = f"Executing system task"
+                
+                # Check for handoff
+                c_handoffs = [c for c in cues if c in self.CUE_TO_AGENT]
+                if c_handoffs:
+                    target = self.CUE_TO_AGENT[c_handoffs[0]]
+                    clean_full_response = f"Proceeding to {target}... 🔀"
+                else:
+                    clean_full_response = f"_{action_desc}_"
+            # ------------------------------
             
             # Save to conversation - USE CLEANED/PLACEHOLDER VERSION
             # This ensures agents don't see giant code blocks or old content in history
@@ -1403,3 +1435,12 @@ class AgentOrchestrator:
             initial_agent="Research Lead"
         ):
             yield event
+
+    async def _trigger_background_review(self):
+        """Helper to run review without blocking"""
+        if not self.review_service: return
+        try:
+            # We pass the message objects. ReviewService expects them to have .agent and .content
+            await self.review_service.trigger_review(self.conversation)
+        except Exception as e:
+            print(f"⚠️ [Orchestrator] Background review error: {e}")

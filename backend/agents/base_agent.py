@@ -256,69 +256,54 @@ class BaseAgent(ABC):
     async def _stream_gemini(self, prompt: str, retry_count: int = 0) -> AsyncGenerator[str, None]:
         """Stream response from Gemini using new SDK with async support"""
         max_retries = 2
-        min_valid_chars = 50  # Retry if response is shorter than this
+        min_valid_chars = 20  # Lowered threshold
         chunk_count = 0
         total_chars = 0
         last_chunk = None
         
-        # print(f"\n🔍 [Gemini Debug] {self.name} - Prompt length: {len(prompt)} chars")
-        # print(f"   📝 Prompt preview: {prompt[:300]}...")
+        # Minimal logging - removed verbose debug output
         
         try:
-            # The new SDK has an 'aio' attribute for async operations
+            # Gemini 3 Flash works best without explicit thinking_config
+            # The thinking_budget was consuming all tokens, causing MAX_TOKENS errors
             stream = await self.client.aio.models.generate_content_stream(
                 model=self.model,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_prompt,
-                    temperature=0.4,  # Lower temperature for consistency
-                    max_output_tokens=4096
+                    temperature=0.7,  # Slightly higher for more creative responses
+                    max_output_tokens=8192
                 )
             )
             
             async for chunk in stream:
                 chunk_count += 1
                 last_chunk = chunk
+                
+                # Debug logging removed for cleaner output
+                
+                # Capture thoughts if available (Gemini 2.0 Thinking models)
+                if hasattr(chunk, 'candidates') and chunk.candidates:
+                    for part in chunk.candidates[0].content.parts:
+                        # Native thinking field in some SDK versions
+                        if hasattr(part, 'thought') and part.thought:
+                            thought_text = part.thought
+                            total_chars += len(thought_text)
+                            yield f"<think>{thought_text}</think>"
+                        
+                # Standard text field
                 if chunk.text:
                     total_chars += len(chunk.text)
                     yield chunk.text
             
-            # print(f"📡 [Gemini] {self.name}: {chunk_count} chunks, {total_chars} chars")
+            # Stream complete - debug info removed
             
-            # Detailed logging for debugging short/empty responses
-            # if last_chunk and total_chars < min_valid_chars:
-            #     print(f"\n❓ [Gemini Debug] {self.name} - Short response analysis ({total_chars} chars):")
-            #     print(f"   Model: {self.model}")
-            #     
-            #     # Check for candidates
-            #     if hasattr(last_chunk, 'candidates') and last_chunk.candidates:
-            #         candidate = last_chunk.candidates[0]
-            #         print(f"   Finish reason: {candidate.finish_reason if hasattr(candidate, 'finish_reason') else 'N/A'}")
-            #         
-            #         # Check content
-            #         if hasattr(candidate, 'content') and candidate.content:
-            #             parts = candidate.content.parts if hasattr(candidate.content, 'parts') else []
-            #             print(f"   Parts count: {len(parts)}")
-            #             for i, part in enumerate(parts):
-            #                 text_len = len(part.text) if hasattr(part, 'text') else 0
-            #                 has_thought = hasattr(part, 'thought_signature') and part.thought_signature
-            #                 print(f"   Part {i}: text={text_len} chars, has_thought={has_thought}")
-            #     
-            #     # Check usage metadata
-            #     if hasattr(last_chunk, 'usage_metadata') and last_chunk.usage_metadata:
-            #         usage = last_chunk.usage_metadata
-            #         print(f"   Prompt tokens: {getattr(usage, 'prompt_token_count', 'N/A')}")
-            #         print(f"   Thought tokens: {getattr(usage, 'thoughts_token_count', 'N/A')}")
-            #         print(f"   Total tokens: {getattr(usage, 'total_token_count', 'N/A')}")
-            #     
-            #     # Check for prompt feedback (safety)
-            #     if hasattr(last_chunk, 'prompt_feedback') and last_chunk.prompt_feedback:
-            #         print(f"   ⚠️ Prompt feedback: {last_chunk.prompt_feedback}")
+            # Short response logging removed (was too verbose)
             
-            # Retry on short/empty responses
+            # Retry on short/empty responses (including thoughts)
             if total_chars < min_valid_chars and retry_count < max_retries:
                 print(f"⚠️ [Gemini] {self.name}: Short response ({total_chars} chars), attempt {retry_count + 1}/{max_retries + 1}, retrying after 1s...")
-                await asyncio.sleep(1)  # Small delay before retry
+                await asyncio.sleep(1)
                 async for chunk in self._stream_gemini(prompt, retry_count + 1):
                     yield chunk
             elif total_chars < min_valid_chars:
