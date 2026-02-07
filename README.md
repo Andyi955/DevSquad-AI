@@ -13,6 +13,9 @@ A fun, interactive web application where AI agents (DeepSeek & Gemini) collabora
   <br><br>
   <img src="docs/images/research_demo.gif" alt="Deep Research Demo" width="800">
   <br><i>Tandem agents performing parallel search and synthesis</i>
+  <br><br>
+  <img src="docs/images/review_agent.png" alt="Review Agent Dashboard" width="800">
+  <br><i>Review Agent analyzing agent performance and suggesting improvements</i>
 </div>
 
 ## ✨ Features
@@ -22,6 +25,7 @@ A fun, interactive web application where AI agents (DeepSeek & Gemini) collabora
 - **🧪 Unit Tester** (Gemini) - Test creation (Pytest/Unittest), quality assurance
 - **🔍 Researcher** (Gemini) - Targeted web searches, documentation lookups
 - **🏗️ Research Lead** (Gemini) - Deep research orchestration, report synthesis
+- **🕵️‍♂️ Review Agent** (Gemini) - Silent observer that critiques performance and suggests system improvements
 
 #### 🔬 Dedicated Deep Research
 The Research framework uses a **Tandem Architecture** for maximum depth and speed:
@@ -46,6 +50,7 @@ We utilize a combination of **Gemini 3 Flash** for development speed and **DeepS
 - 🔒 **Safe Switch Management** - Dynamically switch between project folders without data loss
 - 🌈 **Color-coded Diffs** - Visual representation of code additions and removals
 - 📊 **Usage tracking** - Monitor API usage and costs
+- 🕵️‍♂️ **Self-Improving System** - Review Agent analyzes performance and suggests prompt/orchestrator improvements
 
 ---
 
@@ -150,6 +155,17 @@ The application is designed around a **State Machine pattern** where each AI age
 - **The Orchestrator**: The central `orchestrator.py` manages the "handoff" logic, parsing `[→AGENT]` cues and ensuring strict sequential execution.
 - **Terminal & Task Safety**: On Windows, PowerShell is the forced default to ensure terminal stability. The system uses log debouncing and fuzzy echo filtering to prevent terminal "noise" from cluttering the agent's context memory.
 - **Priority Review**: Agents cannot execute code until the user has approved the file changes. The orchestrator now pauses all follow-up tasks (like `RUN_TESTS`) specifically until the "Save" is confirmed.
+
+### 🕵️‍♂️ Review Agent & Self-Improvement
+The Review Agent operates in **Shadow Mode**, silently observing all agent interactions and providing:
+
+- **Performance Scoring**: Each agent response is rated 0-100 based on accuracy, efficiency, and style
+- **Pattern Detection**: Identifies recurring issues (e.g., "Junior Dev consistently forgets error handling")
+- **Prompt Engineering**: Suggests concrete improvements to system prompts (`backend/prompts/*.md`)
+- **Handoff Optimization**: Analyzes and suggests improvements to the orchestrator's cue detection and agent selection logic
+- **One-Click Fixes**: Review suggestions appear as pending changes that can be applied with a single click
+
+This creates a **self-improving system** where the AI agents get better over time based on their own performance analysis.
 
 ### Agent Cue System
 Agents communicate via special cues in their responses:

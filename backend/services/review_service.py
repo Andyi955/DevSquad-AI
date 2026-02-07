@@ -140,12 +140,29 @@ class ReviewService:
         """
         Apply a suggestion to a file.
         suggestion: { "target_file": str, "proposed_content": str, "description": str }
+        
+        Supports editing:
+        - Prompt files (backend/prompts/*.md)
+        - Orchestrator logic (backend/agents/orchestrator.py)
         """
         target_file = suggestion.get("target_file")
         content = suggestion.get("proposed_content")
         
         if not target_file or not content:
             return {"status": "error", "message": "Missing file or content"}
+        
+        # Validate target file is in allowed list for safety
+        allowed_files = [
+            "backend/prompts/",
+            "backend/agents/orchestrator.py"
+        ]
+        
+        is_allowed = any(target_file.startswith(prefix) or target_file == prefix for prefix in allowed_files)
+        if not is_allowed:
+            return {
+                "status": "error", 
+                "message": f"Review Agent can only edit prompt files or orchestrator.py, not: {target_file}"
+            }
             
         try:
             # Read current content for context

@@ -512,6 +512,12 @@ function App() {
   const sendChatMessage = useCallback(async (message) => {
     if (!isConnected || !message.trim()) return
 
+    // Check if folder is selected - show nice notification if not
+    if (!workspacePath && fileTree.length === 0) {
+      showToast('Please select a folder first to start working 📂', '💡')
+      return
+    }
+
     // Add user message and mark ALL previous as complete
     setMessages(prev => [
       ...prev.map(m => ({ ...m, complete: true })),
@@ -792,6 +798,12 @@ function App() {
   const doResearch = useCallback((query) => {
     if (!isConnected || !query.trim()) {
       console.log('❌ [App] Cannot start research - not connected or empty query')
+      return
+    }
+
+    // Check if folder is selected - show nice notification if not
+    if (!workspacePath && fileTree.length === 0) {
+      showToast('Please select a folder first to start working 📂', '💡')
       return
     }
 
