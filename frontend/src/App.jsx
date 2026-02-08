@@ -17,7 +17,8 @@ import Dashboard from './pages/Dashboard'
 // Hooks
 import { useWebSocket } from './hooks/useWebSocket'
 
-const API_URL = 'http://127.0.0.1:8000'
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+const WS_URL = import.meta.env.VITE_WS_URL || ''
 
 function App() {
   // State
@@ -248,14 +249,17 @@ function App() {
 
   // WebSocket connection
   const {
-    isConnected,
+    isConnected: wsConnected,
     sendMessage: wsSend,
     lastMessage,
     stopAgent,
     disconnect
-  } = useWebSocket(`ws://127.0.0.1:8000/ws/agents`, {
+  } = useWebSocket(WS_URL ? `${WS_URL}/ws/agents` : '', {
     onMessage: handleMessage
   })
+
+  // If no WS_URL is provided (e.g. production HTTP API), assume connected via HTTP
+  const isConnected = !!WS_URL ? wsConnected : true
 
   // Optimistic Stop Handler
   const handleStopAgent = useCallback(() => {
@@ -550,17 +554,68 @@ function App() {
     }
 
 
-    // Send to WebSocket
-    wsSend({
-      type: 'chat',
-      message,
-      context: {
-        files: fileTree,
-        current_file: currentFileValid,
-        attached_files: attachedFiles
+    // Send to WebSocket if available
+    if (WS_URL && wsConnected) {
+      wsSend({
+        type: 'chat',
+        message,
+        context: {
+          files: fileTree,
+          current_file: currentFileValid,
+          attached_files: attachedFiles
+        }
+      })
+    } else {
+      // Fallback to HTTP streaming
+      try {
+        setIsTyping(true) // Artificially trigger typing
+        const response = await fetch(`${API_URL}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: message,
+            context: {
+              files: fileTree,
+              current_file: currentFileValid,
+              attached_files: attachedFiles
+            },
+            // Legacy field support
+            files: fileTree.map(f => f.path)
+          })
+        })
+
+        if (!response.ok) throw new Error(response.statusText)
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          const chunk = decoder.decode(value, { stream: true })
+          // Handle multiple lines in one chunk
+          const lines = chunk.split('\n').filter(line => line.trim() !== '')
+
+          for (const line of lines) {
+            try {
+              const data = JSON.parse(line)
+              handleMessage(data)
+            } catch (e) {
+              console.error('Error parsing JSON chunk:', e)
+            }
+          }
+        }
+      } catch (err) {
+        console.error('HTTP Chat failed:', err)
+        handleMessage({
+          type: 'error',
+          content: `Connection failed: ${err.message}`,
+          agent: 'System'
+        })
       }
-    })
-  }, [isConnected, wsSend, fileTree, selectedFile, attachedFiles])
+    }
+  }, [isConnected, wsConnected, wsSend, fileTree, selectedFile, attachedFiles, handleMessage])
 
   // Clear workspace (UI state only - files remain on disk)
   const clearWorkspace = async (skipConfirm = false) => {
@@ -932,8 +987,12 @@ function App() {
                   } else {
                     // Fallback or error
                     console.error("Terminal not connected");
+                    if (!WS_URL) {
+                      console.warn("WebSocket not configured for AWS deployment");
+                      return;
+                    }
                     // Try to re-establish or alert
-                    const tempWs = new WebSocket('ws://127.0.0.1:8000/ws/terminal');
+                    const tempWs = new WebSocket(`${WS_URL}/ws/terminal`);
                     tempWs.onopen = () => {
                       tempWs.send(JSON.stringify({ type: 'input', data: cmd + '\r' }));
                       tempWs.close(); // Just one-off? No, we need output.

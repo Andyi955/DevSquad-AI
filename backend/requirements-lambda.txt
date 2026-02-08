@@ -1,0 +1,13 @@
+# Lambda-optimized requirements (smaller, faster)
+fastapi>=0.109.0,<0.100
+uvicorn>=0.27.0
+python-dotenv>=1.0.0
+pydantic>=1.10.0,<2.0
+httpx>=0.26.0
+google-genai>=1.0.0
+openai>=1.12.0
+beautifulsoup4>=4.12.0
+markdown>=3.5.0
+mangum>=0.17.0
+boto3>=1.34.0
+botocore>=1.34.0

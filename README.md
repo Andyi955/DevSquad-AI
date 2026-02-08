@@ -209,7 +209,32 @@ DEEPSEEK_API_KEY=your_key
 MAX_FILE_SIZE_MB=10          # Max upload size
 ENABLE_BROWSER_AGENT=true    # Enable web browsing
 USAGE_LIMIT_PER_DAY=1000     # API call limit
+ENVIRONMENT=production       # Set to production for rate limiting and AWS features
 ```
+
+---
+
+## ☁️ AWS Deployment (Serverless)
+
+The application is now fully compatible with AWS Serverless infrastructure:
+
+- **Frontend**: Hosted on **AWS S3** as a static website.
+- **Backend API**: Running on **AWS Lambda** with **Mangum/FastAPI**.
+- **Database**: **DynamoDB** is used for persistent session storage and real-time rate limiting.
+- **Routing**: **AWS API Gateway** (HTTP API) handles high-concurrency requests.
+- **Security**: Built-in **IP-based Rate Limiting** (DynamoDB backed) to prevent API abuse.
+
+### Production Deployment Script
+We have provided a one-click deployment script:
+```powershell
+# Prerequisites: AWS CLI configured with appropriate credentials
+.\deploy.ps1
+```
+This script automates:
+1. Building the Lambda package via Docker (for Linux binary compatibility).
+2. Uploading the package to S3 and updating the Lambda function.
+3. Building the production Frontend (Vite).
+4. Deploying the frontend assets to the S3 bucket.
 
 ---
 
@@ -232,13 +257,12 @@ USAGE_LIMIT_PER_DAY=1000     # API call limit
 
 ---
 
-## 🔮 Roadmap
-
-### Phase 2: AWS Deployment
-- [ ] S3 for file storage
-- [ ] Lambda for agent execution
-- [ ] DynamoDB for session history
-- [ ] CloudFront CDN
+### Phase 2: AWS Deployment (COMPLETE)
+- [x] S3 for file storage & static website hosting
+- [x] Lambda for backend API execution
+- [x] DynamoDB for session history & rate limiting
+- [x] API Gateway HTTP API integration
+- [x] HTTP Streaming fallback for serverless environments
 
 ### Future Ideas
 - [ ] More agent personas (DevOps, Security, etc.)

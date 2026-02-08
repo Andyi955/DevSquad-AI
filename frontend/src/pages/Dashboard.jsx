@@ -6,7 +6,7 @@ import {
     TrendingUp, AlertCircle, CheckCheck, Check, X, ArrowRight, Brain, Activity, MessageSquare, Zap, ChevronDown, ChevronUp, Clock, Target, History, Plus, Archive
 } from 'lucide-react';
 
-const API_URL = 'http://127.0.0.1:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
 const Dashboard = () => {
     const [data, setData] = useState({ reviews: [], stats: { history: [] } });

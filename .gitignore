@@ -11,7 +11,9 @@ node_modules/
 # Environment
 .env
 .env.local
-.env.*.local
+.env.production.local
+.env.development.local
+*.env.*
 
 # IDE
 .vscode/
@@ -23,6 +25,8 @@ node_modules/
 dist/
 build/
 *.egg-info/
+backend/lambda_build/
+frontend/dist/
 
 # Logs
 *.log
@@ -40,4 +44,19 @@ screenshots/
 .coverage
 htmlcov/
 
+# Data/Temporary
 projects/
+tmp/
+*.zip
+*.pem
+*.key
+
+# AWS Deployment & Infrastructure
+infrastructure/
+AWS_DEPLOYMENT_STATUS.md
+AWS_DEPLOYMENT_GUIDE.md
+deploy-vars.ps1
+
+# Compiled scripts
+**/*.exe
+**/*.bin

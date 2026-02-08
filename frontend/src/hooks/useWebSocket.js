@@ -19,7 +19,7 @@ export function useWebSocket(url, options = {}) {
     }, [options.onMessage])
 
     const connect = useCallback(() => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) return
+        if (!url || wsRef.current?.readyState === WebSocket.OPEN) return
 
         try {
             wsRef.current = new WebSocket(url)
@@ -66,6 +66,10 @@ export function useWebSocket(url, options = {}) {
     }, [url])
 
     useEffect(() => {
+        if (!url) {
+            setIsConnected(false)
+            return
+        }
         connect()
 
         return () => {

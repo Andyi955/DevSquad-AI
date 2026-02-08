@@ -4,6 +4,9 @@ import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import 'xterm/css/xterm.css';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const WS_URL = import.meta.env.VITE_WS_URL || '';
+
 const TerminalComponent = ({ isActive, onActivity }) => {
     // shell is now hardcoded to 'powershell' in backend for stability
     const shell = 'powershell';
@@ -56,8 +59,13 @@ const TerminalComponent = ({ isActive, onActivity }) => {
         xtermRef.current = term;
         fitAddonRef.current = fitAddon;
 
-        // Connect to WebSocket with shell preference
-        const wsUrl = `ws://127.0.0.1:8000/ws/terminal?shell=${shell}`;
+        // Connect to WebSocket with shell preference (only if WS_URL is configured)
+        if (!WS_URL) {
+            term.writeln('\x1b[1;33mTerminal unavailable in serverless mode\x1b[0m');
+            term.writeln('WebSocket not configured for AWS deployment');
+            return;
+        }
+        const wsUrl = `${WS_URL}/ws/terminal?shell=${shell}`;
         const ws = new WebSocket(wsUrl);
 
         wsRef.current = ws;

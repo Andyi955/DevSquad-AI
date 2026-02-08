@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 from agents.orchestrator import AgentOrchestrator
+from services.aws_services import SessionStore, UsageTrackerAWS, RateLimiter
 from services.file_manager import FileManager
 from services.usage_tracker import UsageTracker
 from services.web_scraper import WebScraper
@@ -336,16 +337,45 @@ active_research = {}
 class ChatMessage(BaseModel):
     content: str
     agent_id: Optional[str] = None
-    files: Optional[List[str]] = None
+    files: Optional[List[str]] = None  # Legacy files list
+    context: Optional[dict] = {}       # Full context object
+
+from fastapi.responses import StreamingResponse
+
+from fastapi import Request, HTTPException
 
 @app.post("/chat")
-async def chat_endpoint(message: ChatMessage):
-    """Legacy HTTP endpoint for chat (now handled via WebSockets)"""
-    return {"status": "Use WebSocket at /ws/agents"}
+async def chat_endpoint(message: ChatMessage, request: Request):
+    """HTTP streaming endpoint for chat (fallback for no-WebSocket envs)"""
+    # Rate limiting
+    ip = request.client.host
+    if not await RateLimiter.is_allowed(ip, limit=100):
+        return {"type": "error", "content": "Daily limit reached. Please try again tomorrow.", "agent": "System"}
+
+    async def event_generator():
+        # Ensure context has files if not provided in context dict but in legacy field
+        ctx = message.context or {}
+        if message.files and 'files' not in ctx:
+            ctx['files'] = message.files
+
+        try:
+            async for event in orchestrator.process_message_stream(message.content, ctx):
+                yield json.dumps(event) + "\n"
+        except Exception as e:
+            yield json.dumps({"type": "error", "content": str(e), "agent": "System"}) + "\n"
+
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
 @app.websocket("/ws/agents")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    
+    # Simple rate limiting for WebSockets
+    ip = websocket.client.host
+    if not await RateLimiter.is_allowed(ip, limit=100):
+        await websocket.send_json({"type": "error", "content": "Daily limit reached. Please try again tomorrow.", "agent": "System"})
+        await websocket.close()
+        return
     print(f"🔌 Client connected. Total: {len(app.state.connections) + 1 if hasattr(app.state, 'connections') else 1}")
     
     if not hasattr(app.state, "connections"):

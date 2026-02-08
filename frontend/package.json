@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:prod": "vite build --mode production",
     "lint": "eslint .",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "node deploy.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",
@@ -27,6 +29,9 @@
     "xterm-addon-web-links": "^0.9.0"
   },
   "devDependencies": {
+    "@aws-sdk/client-cloudfront": "^3.450.0",
+    "@aws-sdk/client-s3": "^3.450.0",
+    "mime-types": "^2.1.35",
     "@eslint/js": "^9.39.1",
     "@tailwindcss/postcss": "^4.1.18",
     "@testing-library/dom": "^10.4.1",

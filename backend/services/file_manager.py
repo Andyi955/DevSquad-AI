@@ -44,7 +44,14 @@ class FileManager:
         # Base paths for safe fallbacks
         self.root_path = Path(__file__).parent.parent.parent.resolve()
         self.projects_root = self.root_path / "projects"
-        self.projects_root.mkdir(exist_ok=True)
+        
+        # Lambda has read-only filesystem, so make projects root optional
+        try:
+            self.projects_root.mkdir(exist_ok=True)
+        except OSError:
+            # Running in Lambda - use /tmp for temporary storage
+            self.projects_root = Path("/tmp/projects")
+            self.projects_root.mkdir(exist_ok=True)
         
         self.workspace_path = None  # No workspace until user opens a folder
         self.max_file_size = int(os.getenv("MAX_FILE_SIZE_MB", 10)) * 1024 * 1024
