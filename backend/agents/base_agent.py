@@ -272,7 +272,7 @@ class BaseAgent(ABC):
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_prompt,
                     temperature=0.7,  # Slightly higher for more creative responses
-                    max_output_tokens=8192
+                    max_output_tokens=65536
                 )
             )
             
@@ -320,7 +320,7 @@ class BaseAgent(ABC):
                     config=types.GenerateContentConfig(
                         system_instruction=self.system_prompt,
                         temperature=0.7,
-                        max_output_tokens=4096
+                        max_output_tokens=65536
                     )
                 )
 
@@ -352,7 +352,7 @@ class BaseAgent(ABC):
             messages=messages,
             stream=True,
             temperature=0.7,
-            max_tokens=512
+            max_tokens=8192
         )
         
         async for chunk in stream:
@@ -375,7 +375,7 @@ class BaseAgent(ABC):
                     config=types.GenerateContentConfig(
                         system_instruction=self.system_prompt,
                         temperature=0.7,
-                        max_output_tokens=4096
+                        max_output_tokens=65536
                     )
                 )
             )
@@ -390,6 +390,6 @@ class BaseAgent(ABC):
                 model=self.model,
                 messages=messages,
                 temperature=0.7,
-                max_tokens=4096
+                max_tokens=8192
             )
             return response.choices[0].message.content

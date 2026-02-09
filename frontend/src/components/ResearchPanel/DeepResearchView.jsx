@@ -42,6 +42,8 @@ function DeepResearchView({ results, isResearching, currentStatus, report, onSea
         }
     }
 
+    const [isWorkflowCollapsed, setIsWorkflowCollapsed] = useState(false)
+
     useEffect(() => {
         if (isResearching) {
             const status = currentStatus?.toLowerCase() || '';
@@ -62,85 +64,107 @@ function DeepResearchView({ results, isResearching, currentStatus, report, onSea
                 // Default to planning if we just started, or searching if we have results but no report yet
                 setPhase(results.length > 0 ? 'searching' : 'planning');
             }
+            setIsWorkflowCollapsed(false); // Always expand when researching
         } else if (results.length > 0 || report) {
             setPhase('complete')
             if (report && viewMode !== 'report') setViewMode('report')
+
+            // Auto-collapse when report is done
+            if (report) {
+                setIsWorkflowCollapsed(true)
+            }
         }
     }, [isResearching, currentStatus, results, report, viewMode])
 
     return (
         <div className="deep-research-container glass-card">
-            <header className="deep-research-header">
-                <div className="status-badge" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div className="research-status-pill">
-                        <span className={`pulse-dot ${isResearching ? 'active' : ''}`}></span>
-                        {isResearching ? phase.toUpperCase() : 'RESEARCH ARCHIVE'}
-                    </div>
-                </div>
-
-                <div className="header-actions" style={{ flex: 1, display: 'flex', justifyContent: 'center', margin: '0 24px' }}>
-                    <form onSubmit={handleLocalSearch} className="deep-research-input-wrapper">
-                        <input
-                            type="text"
-                            className="deep-search-bar"
-                            placeholder="Ask for a deep dive research mission..."
-                            value={localQuery}
-                            onChange={(e) => setLocalQuery(e.target.value)}
-                            disabled={isResearching}
-                        />
-                        <button type="submit" className="deep-search-btn" disabled={isResearching}>
-                            {isResearching ? '...' : '🔍 Initiate Deep Research'}
-                        </button>
-                    </form>
-                </div>
-
-                {!isResearching && report && (
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                        <div className="report-badge">
-                            ✨ FINAL EXECUTIVE REPORT
+            <div className={`research-top-section ${isWorkflowCollapsed ? 'collapsed' : ''}`}>
+                <header className="deep-research-header">
+                    <div className="header-top-row">
+                        <div className="research-title">
+                            <h3>DEEP RESEARCH</h3>
                         </div>
-                        <button
-                            className="btn btn-secondary"
-                            style={{ padding: '4px 12px', fontSize: '0.7rem', height: 'auto', borderRadius: '20px' }}
-                            onClick={() => {
-                                const blob = new Blob([report], { type: 'text/markdown' });
-                                const url = URL.createObjectURL(blob);
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = `Deep_Research_Report_${new Date().getTime()}.md`;
-                                a.click();
-                            }}
-                        >
-                            📥 Download .md
-                        </button>
+                        <div className="research-status-pill">
+                            <span className={`pulse-dot ${isResearching ? 'active' : ''}`}></span>
+                            {isResearching ? phase.toUpperCase() : 'ARCHIVE'}
+                        </div>
                     </div>
-                )}
-                {!isResearching && results.length > 0 && !report && (
-                    <div className="view-toggle">
-                        <button className="active">
-                            🔍 Raw Sources ({results.length})
-                        </button>
-                    </div>
-                )}
-            </header>
 
-            <div className="research-workflow">
-                <WorkflowStep
-                    title="Strategic Planning"
-                    status={phase === 'planning' ? 'active' : (['searching', 'synthesizing', 'complete'].includes(phase) ? 'done' : 'pending')}
-                    icon="🎯"
-                />
-                <WorkflowStep
-                    title="Tandem Search"
-                    status={phase === 'searching' ? 'active' : (['synthesizing', 'complete'].includes(phase) ? 'done' : 'pending')}
-                    icon="🕵️‍♂️"
-                />
-                <WorkflowStep
-                    title="Intelligent Synthesis"
-                    status={phase === 'synthesizing' ? 'active' : (phase === 'complete' ? 'done' : 'pending')}
-                    icon="🧠"
-                />
+                    <div className="header-main-row">
+                        <form onSubmit={handleLocalSearch} className="deep-research-input-wrapper">
+                            <input
+                                type="text"
+                                className="deep-search-bar"
+                                placeholder="Ask for a deep dive research mission..."
+                                value={localQuery}
+                                onChange={(e) => setLocalQuery(e.target.value)}
+                                disabled={isResearching}
+                            />
+                            <button type="submit" className="deep-search-btn" disabled={isResearching}>
+                                {isResearching ? '...' : '🔍 Initiate'}
+                            </button>
+                        </form>
+                    </div>
+
+                    <div className="header-bottom-row">
+                        {!isResearching && report && (
+                            <div className="report-actions">
+                                <div className="report-badge">
+                                    ✨ FINAL REPORT READY
+                                </div>
+                                <button
+                                    className="download-btn"
+                                    onClick={() => {
+                                        const blob = new Blob([report], { type: 'text/markdown' });
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = `Deep_Research_Report_${new Date().getTime()}.md`;
+                                        a.click();
+                                    }}
+                                >
+                                    📥 Download .md
+                                </button>
+                            </div>
+                        )}
+                        {!isResearching && results.length > 0 && !report && (
+                            <div className="view-toggle">
+                                <button className="active">
+                                    🔍 Raw Sources ({results.length})
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </header>
+
+                <div className="research-workflow">
+                    <WorkflowStep
+                        title="Strategic Planning"
+                        status={phase === 'planning' ? 'active' : (['searching', 'synthesizing', 'complete'].includes(phase) ? 'done' : 'pending')}
+                        icon="🎯"
+                    />
+                    <WorkflowStep
+                        title="Tandem Search"
+                        status={phase === 'searching' ? 'active' : (['synthesizing', 'complete'].includes(phase) ? 'done' : 'pending')}
+                        icon="🕵️‍♂️"
+                    />
+                    <WorkflowStep
+                        title="Intelligent Synthesis"
+                        status={phase === 'synthesizing' ? 'active' : (phase === 'complete' ? 'done' : 'pending')}
+                        icon="🧠"
+                    />
+                </div>
             </div>
+
+            {(results.length > 0 || report) && (
+                <div
+                    className={`workflow-expander ${isWorkflowCollapsed ? 'collapsed' : ''}`}
+                    onClick={() => setIsWorkflowCollapsed(!isWorkflowCollapsed)}
+                    title={isWorkflowCollapsed ? "Show Research Steps" : "Hide Research Steps"}
+                >
+                    <div className="expander-arrow"></div>
+                </div>
+            )}
 
             <div className="research-content-area">
                 {isResearching && (

@@ -1,0 +1,47 @@
+/* Resizing Handles */
+.resize-handle {
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s;
+}
+
+.workspace-layout:hover .resize-handle {
+    opacity: 1;
+}
+
+.resize-handle:hover,
+.resize-handle:active {
+    background: var(--neon-cyan);
+    opacity: 1;
+}
+
+/* Panel Toggle Buttons */
+.panel-toggle-btn {
+    opacity: 0;
+    transform: translateY(-50%) scale(0.8);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    color: var(--text-muted);
+}
+
+.workspace-layout:hover .panel-toggle-btn {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+}
+
+.panel-toggle-btn:hover {
+    background: var(--bg-tertiary);
+    color: var(--neon-cyan);
+    border-color: var(--neon-cyan);
+    box-shadow: 0 0 10px rgba(6, 182, 212, 0.3);
+}
+
+/* Ensure smooth transitions for width changes */
+.sidebar-container,
+.research-panel-container {
+    will-change: width;
+}
+
+/* Prevent text selection during resize */
+.resizing {
+    user-select: none;
+    cursor: col-resize;
+}

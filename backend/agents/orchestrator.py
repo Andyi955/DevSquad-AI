@@ -904,19 +904,6 @@ class AgentOrchestrator:
                     sub_research_queries.append(cue.split(":", 1)[1])
 
             if sub_research_queries:
-                # Save the Research Lead's message to conversation FIRST
-                # This ensures the Summarizer knows what was planned
-                lead_msg = Message(
-                    agent=current_agent_name,
-                    content=clean_full_response,
-                    thoughts=full_thoughts,
-                    cues=cues
-                )
-                self.conversation.append(lead_msg)
-                full_context["conversation"].append({
-                    "agent": current_agent_name,
-                    "content": lead_msg.content
-                })
 
                 all_detailed_contents = []
                 
@@ -985,6 +972,19 @@ class AgentOrchestrator:
                         "path": filename,
                         "content": file_content
                     })
+
+                # Generate summary for conversation history to ensure context continuity
+                research_summary = f"**Executed Deep Research** on {len(sub_research_queries)} topics. Found {len(all_detailed_contents)} sources:\n\n"
+                for i, content in enumerate(all_detailed_contents):
+                    title = content.get('title', 'Unknown Source')
+                    url = content.get('url', '#')
+                    research_summary += f"{i+1}. [{title}]({url})\n"
+                
+                # Add to history so it's visible to user/evaluator and next agent
+                self.conversation.append(Message(
+                    agent="System",
+                    content=research_summary
+                ))
 
                 yield {
                     "type": "agent_status",

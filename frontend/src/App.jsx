@@ -11,6 +11,7 @@ import ApprovalModal from './components/ApprovalModal/ApprovalModal'
 import DeepResearchView from './components/ResearchPanel/DeepResearchView'
 import TimelineView from './components/Timeline/TimelineView'
 import TerminalComponent from './components/Terminal' // Import Terminal
+import './components/ResizeHandles.css' // Layout Resizing
 import Dashboard from './pages/Dashboard'
 
 
@@ -45,6 +46,46 @@ function App() {
   const [timeline, setTimeline] = useState([]) // New activity timeline
   const [hasTerminalActivity, setHasTerminalActivity] = useState(false) // Notification dot for terminal
 
+  // Layout State
+  const [leftPanelWidth, setLeftPanelWidth] = useState(260)
+  const [rightPanelWidth, setRightPanelWidth] = useState(320)
+  const [isLeftCollapsed, setIsLeftCollapsed] = useState(false)
+  const [isRightCollapsed, setIsRightCollapsed] = useState(false)
+  const [isResizingLeft, setIsResizingLeft] = useState(false)
+  const [isResizingRight, setIsResizingRight] = useState(false)
+
+  // Resizing Logic
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (isResizingLeft) {
+        const newWidth = e.clientX
+        if (newWidth > 150 && newWidth < 600) setLeftPanelWidth(newWidth)
+      }
+      if (isResizingRight) {
+        const newWidth = window.innerWidth - e.clientX
+        if (newWidth > 200 && newWidth < 800) setRightPanelWidth(newWidth)
+      }
+    }
+
+    const handleMouseUp = () => {
+      setIsResizingLeft(false)
+      setIsResizingRight(false)
+      document.body.style.cursor = 'default'
+      document.body.style.userSelect = 'auto'
+    }
+
+    if (isResizingLeft || isResizingRight) {
+      window.addEventListener('mousemove', handleMouseMove)
+      window.addEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizingLeft, isResizingRight])
 
 
   // Handle incoming WebSocket messages
@@ -512,11 +553,7 @@ function App() {
   const sendChatMessage = useCallback(async (message) => {
     if (!isConnected || !message.trim()) return
 
-    // Check if folder is selected - show nice notification if not
-    if (!workspacePath && fileTree.length === 0) {
-      showToast('Please select a folder first to start working 📂', '💡')
-      return
-    }
+    // Chat can proceed without a workspace.
 
     // Add user message and mark ALL previous as complete
     setMessages(prev => [
@@ -801,11 +838,7 @@ function App() {
       return
     }
 
-    // Check if folder is selected - show nice notification if not
-    if (!workspacePath && fileTree.length === 0) {
-      showToast('Please select a folder first to start working 📂', '💡')
-      return
-    }
+    // Deep research doesn't strictly need a workspace as it's primarily web-based.
 
     console.log('🔬 [App] Starting deep research via WebSocket:', query)
 
@@ -846,21 +879,78 @@ function App() {
       />
 
       <div className="workspace-layout">
-        <Sidebar
-          files={fileTree}
-          selectedFile={selectedFile}
-          onSelectFile={setSelectedFile}
-          onUpload={uploadFiles}
-          onAttachFiles={attachFiles}
-          onClearWorkspace={clearWorkspace}
-          onCreateFile={createFile}
-          onCreateFolder={createFolder}
-          onUploadToPath={uploadToPath}
-          onMoveItem={moveItem}
-          onRenameItem={renameItem}
-          onOpenFolder={openFolder}
-          workspacePath={workspacePath}
-        />
+        <div style={{ position: 'relative', display: 'flex', height: '100%' }}>
+          <div
+            className={`sidebar-container ${isLeftCollapsed ? 'collapsed' : ''}`}
+            style={{
+              width: isLeftCollapsed ? '0px' : leftPanelWidth,
+              transition: isResizingLeft ? 'none' : 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              overflow: 'hidden',
+              flexShrink: 0,
+              background: 'var(--bg-secondary)',
+              borderRight: '1px solid var(--border-color)',
+              position: 'relative'
+            }}
+          >
+            <Sidebar
+              files={fileTree}
+              selectedFile={selectedFile}
+              onSelectFile={setSelectedFile}
+              onUpload={uploadFiles}
+              onAttachFiles={attachFiles}
+              onClearWorkspace={clearWorkspace}
+              onCreateFile={createFile}
+              onCreateFolder={createFolder}
+              onUploadToPath={uploadToPath}
+              onMoveItem={moveItem}
+              onRenameItem={renameItem}
+              onOpenFolder={openFolder}
+              workspacePath={workspacePath}
+            />
+          </div>
+
+          {!isLeftCollapsed && (
+            <div
+              className="resize-handle left"
+              onMouseDown={() => setIsResizingLeft(true)}
+              style={{
+                width: '4px',
+                cursor: 'col-resize',
+                background: isResizingLeft ? 'var(--neon-cyan)' : 'transparent',
+                height: '100%',
+                position: 'absolute',
+                right: '-2px',
+                zIndex: 100,
+                transition: 'background 0.2s',
+              }}
+            />
+          )}
+
+          <button
+            className="panel-toggle-btn left"
+            onClick={() => setIsLeftCollapsed(!isLeftCollapsed)}
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: isLeftCollapsed ? '12px' : `${leftPanelWidth - 12}px`,
+              transform: 'translateY(-50%)',
+              zIndex: 101,
+              width: '24px',
+              height: '24px',
+              borderRadius: '50%',
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border-color)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+            }}
+          >
+            {isLeftCollapsed ? '›' : '‹'}
+          </button>
+        </div>
 
         <main className="main-content">
           <div className="main-tabs">
@@ -977,25 +1067,84 @@ function App() {
           </div>
         </main>
 
-        <aside className="research-panel-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', borderLeft: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
-          <div className="panel-tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', height: '48px', alignItems: 'center', padding: '0 12px' }}>
-            <h3 style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-              🛠️ Development Tools
-            </h3>
-          </div>
+        <div style={{ position: 'relative', display: 'flex', height: '100%', flexShrink: 0 }}>
 
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <ChangesPanel
-              pendingChanges={pendingChanges}
-              approvedChanges={approvedChanges}
-              onApprove={(id) => approveChange(id, true)}
-              onReject={(id) => approveChange(id, false)}
-              onApproveAll={approveAllChanges}
-              isFullScreen={false}
-              onToggleFullScreen={() => setIsChangesFullScreen(true)}
+          {!isRightCollapsed && (
+            <div
+              className="resize-handle right"
+              onMouseDown={() => setIsResizingRight(true)}
+              style={{
+                width: '4px',
+                cursor: 'col-resize',
+                background: isResizingRight ? 'var(--neon-purple)' : 'transparent',
+                height: '100%',
+                position: 'absolute',
+                left: '-2px',
+                zIndex: 100,
+                transition: 'background 0.2s',
+              }}
             />
-          </div>
-        </aside>
+          )}
+
+          <button
+            className="panel-toggle-btn right"
+            onClick={() => setIsRightCollapsed(!isRightCollapsed)}
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: isRightCollapsed ? '-36px' : '-12px',
+              transform: 'translateY(-50%)',
+              zIndex: 101,
+              width: '24px',
+              height: '24px',
+              borderRadius: '50%',
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border-color)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+            }}
+          >
+            {isRightCollapsed ? '‹' : '›'}
+          </button>
+
+          <aside
+            className={`research-panel-container ${isRightCollapsed ? 'collapsed' : ''}`}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100%',
+              borderLeft: '1px solid var(--border-color)',
+              background: 'var(--bg-secondary)',
+              width: isRightCollapsed ? '0px' : rightPanelWidth,
+              transition: isResizingRight ? 'none' : 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              overflow: 'hidden',
+              flexShrink: 0,
+              position: 'relative'
+            }}
+          >
+            <div className="panel-tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', height: '48px', alignItems: 'center', padding: '0 12px', flexShrink: 0 }}>
+              <h3 style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                🛠️ Development Tools
+              </h3>
+            </div>
+
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <ChangesPanel
+                pendingChanges={pendingChanges}
+                approvedChanges={approvedChanges}
+                onApprove={(id) => approveChange(id, true)}
+                onReject={(id) => approveChange(id, false)}
+                onApproveAll={approveAllChanges}
+                isFullScreen={false}
+                onToggleFullScreen={() => setIsChangesFullScreen(true)}
+              />
+            </div>
+          </aside>
+        </div>
       </div>
 
       {activeChange && (

@@ -11,27 +11,63 @@
 .deep-research-header {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin-bottom: var(--space-xl);
+    gap: 20px;
+    padding-bottom: 8px;
 }
 
-.deep-research-header h2 {
-    font-size: 1.5rem;
-    background: linear-gradient(135deg, #fff 0%, var(--neon-cyan) 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    letter-spacing: -0.02em;
+.header-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
 }
 
-.status-badge {
+.research-title h3 {
+    font-size: 0.85rem;
+    font-weight: 800;
+    letter-spacing: 0.15em;
+    color: var(--neon-cyan);
+    margin: 0;
+    text-transform: uppercase;
+    text-shadow: 0 0 10px rgba(6, 182, 212, 0.4);
+}
+
+.header-main-row {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+}
+
+.header-bottom-row {
+    display: flex;
+    justify-content: center;
+    min-height: 36px;
+}
+
+.report-actions {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 0.625rem;
-    font-weight: 800;
+    gap: 16px;
+    animation: fadeIn 0.5s ease;
+}
+
+.download-btn {
+    background: rgba(6, 182, 212, 0.05);
+    border: 1px solid var(--neon-cyan);
     color: var(--neon-cyan);
-    letter-spacing: 0.1em;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+}
+
+.download-btn:hover {
+    background: var(--neon-cyan);
+    color: #000;
+    box-shadow: 0 0 15px var(--neon-cyan);
 }
 
 .pulse-dot {
@@ -570,4 +606,84 @@
 
 .fade-in {
     animation: fadeIn 0.4s ease-out forwards;
+}
+
+/* Wrapper for smooth collapsing of the entire top section */
+.research-top-section {
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    max-height: 800px;
+    opacity: 1;
+    overflow: hidden;
+    margin-bottom: var(--space-xl);
+}
+
+.research-top-section.collapsed {
+    max-height: 0;
+    margin-bottom: 0;
+    padding: 0;
+    opacity: 0;
+}
+
+/* Expander Button */
+.workflow-expander {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    margin-bottom: var(--space-md);
+    cursor: pointer;
+    position: relative;
+    height: 12px;
+    z-index: 10;
+}
+
+/* The arrow itself */
+.expander-arrow {
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-bottom: 8px solid var(--neon-cyan);
+    /* Pointing UP by default (click to collapse) */
+
+    filter: drop-shadow(0 0 4px var(--neon-cyan));
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    opacity: 0.6;
+}
+
+.workflow-expander:hover .expander-arrow {
+    opacity: 1;
+    transform: scale(1.2);
+    filter: drop-shadow(0 0 8px var(--neon-cyan));
+}
+
+/* Collapsed state (Pointing DOWN) */
+.workflow-expander.collapsed .expander-arrow {
+    transform: rotate(180deg);
+    border-bottom-color: var(--neon-cyan);
+    opacity: 0.8;
+    animation: glowPulse 2s infinite;
+}
+
+@keyframes glowPulse {
+    0% {
+        filter: drop-shadow(0 0 2px var(--neon-cyan));
+        transform: rotate(180deg) scale(1);
+    }
+
+    50% {
+        filter: drop-shadow(0 0 10px var(--neon-cyan));
+        transform: rotate(180deg) scale(1.1);
+    }
+
+    100% {
+        filter: drop-shadow(0 0 2px var(--neon-cyan));
+        transform: rotate(180deg) scale(1);
+    }
+}
+
+/* Adjustments for the workflow itself */
+.research-workflow {
+    margin-bottom: 0;
+    /* Remove margin from inner, handle with wrapper */
 }

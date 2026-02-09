@@ -357,8 +357,15 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
 
 
 
+    const combinedContainerStyle = {
+        ...containerStyle,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column'
+    };
+
     return (
-        <div className="research-panel" style={containerStyle} onClick={handleContainerClick}>
+        <div className="research-panel" style={combinedContainerStyle} onClick={handleContainerClick}>
             <div className="panel-header" style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -367,7 +374,8 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
                 borderBottom: '1px solid var(--border-color)',
                 background: isFullScreen ? 'var(--bg-secondary)' : 'transparent',
                 padding: isFullScreen ? '12px 16px' : '8px 12px',
-                borderRadius: '0'
+                borderRadius: '0',
+                flexShrink: 0
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'nowrap' }}>
                     <h3 style={{
@@ -441,8 +449,10 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '16px',
-                flex: isFullScreen ? 1 : 'unset',
-                overflow: isFullScreen ? 'auto' : 'visible'
+                flex: 1,
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                paddingRight: '4px' // Prevent scrollbar overlap
             }}>
                 {pendingChanges.length === 0 && (!approvedChanges || approvedChanges.length === 0) && (
                     <div style={{
