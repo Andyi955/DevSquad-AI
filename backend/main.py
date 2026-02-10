@@ -25,12 +25,14 @@ from agents.orchestrator import AgentOrchestrator
 from services.file_manager import FileManager
 from services.usage_tracker import UsageTracker
 from services.web_scraper import WebScraper
+from services.rating_service import RatingService
 
 # Initialize services
 file_manager = FileManager()
 scraper = WebScraper()
 usage_tracker = UsageTracker()
-orchestrator = AgentOrchestrator(file_manager, scraper, usage_tracker)
+rating_service = RatingService()
+orchestrator = AgentOrchestrator(file_manager, scraper, usage_tracker, terminal_manager=terminal_manager, rating_service=rating_service)
 
 # Helper to detect OS
 IS_WINDOWS = sys.platform == 'win32'
@@ -508,6 +510,159 @@ async def get_usage():
     """Get API usage statistics"""
     return usage_tracker.get_summary()
 
+@app.post("/optimize")
+async def optimize_agents():
+    """Trigger agent optimization based on review history"""
+    if not orchestrator.optimizer:
+        return {"status": "error", "message": "Optimizer not available"}
+    
+    # Collect review history
+    review_history = []
+    if orchestrator.review_service and hasattr(orchestrator.review_service, 'review_history'):
+        review_history = orchestrator.review_service.review_history
+    
+    if not review_history:
+        return {"status": "skipped", "message": "No review history to optimize from"}
+    
+    result = await orchestrator.optimizer.optimize_agents(review_history)
+    return {
+        "status": "success",
+        "analysis": result.get("analysis", ""),
+        "changes": result.get("applied_changes", []),
+        "summary": result.get("summary", "")
+    }
+
+@app.get("/supervisor-learnings")
+async def get_supervisor_learnings():
+    """Get learnings collected by the Supervisor agent"""
+    if not orchestrator.supervisor:
+        return {"learnings": [], "message": "Supervisor not available"}
+    
+    return {
+        "learnings": orchestrator.supervisor.learnings,
+        "correction_count": orchestrator.supervisor.correction_count
+    }
+
+# --- Planner API ---
+
+class PlanRequest(BaseModel):
+    message: str
+    use_research: bool = False
+
+class PlanModifyRequest(BaseModel):
+    add_task: Optional[dict] = None
+    remove_task: Optional[int] = None
+    update_task: Optional[dict] = None
+
+@app.post("/api/plan")
+async def create_plan(request: PlanRequest):
+    """Generate a plan from user request"""
+    research_context = None
+    
+    # Optionally gather research first
+    if request.use_research and orchestrator.agents.get("Researcher"):
+        try:
+            researcher = orchestrator.agents["Researcher"]
+            # Quick research call
+            research_response = await researcher.generate_response(
+                f"Quick research for planning: {request.message}",
+                []
+            )
+            research_context = research_response
+        except Exception as e:
+            print(f"⚠️ Research for planning failed: {e}")
+    
+    # Generate plan
+    plan = await orchestrator.planner.create_plan(request.message, research_context)
+    
+    # Broadcast plan created event
+    await broadcast_event({
+        "type": "plan_created",
+        "plan": plan
+    })
+    
+    return {"status": "success", "plan": plan}
+
+@app.post("/api/plan/approve")
+async def approve_plan():
+    """Approve the current pending plan"""
+    if not orchestrator.planner.current_plan:
+        return {"status": "error", "message": "No pending plan to approve"}
+    
+    # First, sync with orchestrator
+    await orchestrator.handle_plan_approval()
+    
+    success = orchestrator.planner.approve_plan()
+    if success:
+        await broadcast_event({
+            "type": "plan_approved",
+            "plan": orchestrator.planner.current_plan
+        })
+        return {"status": "success", "plan": orchestrator.planner.current_plan}
+    return {"status": "error", "message": "Failed to approve plan"}
+
+@app.post("/api/plan/reject")
+async def reject_plan():
+    """Reject the current pending plan"""
+    if not orchestrator.planner.current_plan:
+        return {"status": "error", "message": "No pending plan to reject"}
+    
+    orchestrator.planner.reject_plan()
+    await broadcast_event({"type": "plan_rejected"})
+    return {"status": "success", "message": "Plan rejected"}
+
+@app.post("/api/plan/modify")
+async def modify_plan(request: PlanModifyRequest):
+    """Modify the current pending plan"""
+    if not orchestrator.planner.current_plan:
+        return {"status": "error", "message": "No pending plan to modify"}
+    
+    updated_plan = orchestrator.planner.modify_plan(request.model_dump(exclude_none=True))
+    
+    await broadcast_event({
+        "type": "plan_modified",
+        "plan": updated_plan
+    })
+    
+    return {"status": "success", "plan": updated_plan}
+
+@app.get("/api/plan/current")
+async def get_current_plan():
+    """Get the current plan state"""
+    return {
+        "plan": orchestrator.planner.current_plan,
+        "approved": orchestrator.planner.plan_approved
+    }
+
+class RatingRequest(BaseModel):
+    message_id: str
+    agent_name: str
+    content: str
+    rating: int
+    feedback: Optional[str] = None
+
+@app.post("/api/rate")
+async def rate_agent(request: RatingRequest):
+    try:
+        await rating_service.save_rating(request.dict())
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/plan/complete-task/{task_id}")
+async def complete_plan_task(task_id: int):
+    """Mark a task as completed"""
+    success = orchestrator.planner.complete_task(task_id)
+    
+    if success:
+        await broadcast_event({
+            "type": "task_completed",
+            "task_id": task_id,
+            "plan": orchestrator.planner.current_plan
+        })
+        return {"status": "success"}
+    return {"status": "error", "message": "Task not found"}
+
 @app.get("/select-folder")
 async def select_folder():
     """Open a native folder picker and return the selected path"""
@@ -623,6 +778,19 @@ async def rename_item(data: dict):
     
     try:
         result = await file_manager.rename_item(path, new_name)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/delete")
+async def delete_item(data: dict):
+    path = data.get("path")
+    print(f"🗑️ [API] Received delete request for path: {path}")
+    if not path:
+        raise HTTPException(status_code=400, detail="Path is required")
+    
+    try:
+        result = await file_manager.delete_item(path)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

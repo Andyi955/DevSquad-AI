@@ -1,0 +1,149 @@
+# Supervisor Agent Implementation Plan
+
+## Problem Statement
+Agents sometimes fail to complete handoffs properly (e.g., Junior Dev doesn't hand off to Senior Dev after the calculator task). The Review Agent catches issues *after the fact*, but there's no **real-time intervention** mechanism.
+
+---
+
+## Proposed Solution: Supervisor Agent
+
+A background "always-on" agent that:
+1. **Monitors every turn** - Analyzes agent output immediately after each turn
+2. **Detects failures** - Catches missing `[→SENIOR]`, `[DONE]`, incomplete checklists, etc.
+3. **Intervenes** - Injects a "correction" message to re-prompt the failing agent
+4. **Learns** - Reads Review Agent reports to understand recurring issues
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                       Orchestrator                          │
+│  ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐     │
+│  │ Junior  │──▶│ Senior  │──▶│ Tester  │──▶│ Research│     │
+│  └────┬────┘   └────┬────┘   └────┬────┘   └────┬────┘     │
+│       │             │             │             │           │
+│       └─────────────┴─────────────┴─────────────┘           │
+│                           │                                 │
+│                           ▼                                 │
+│              ┌────────────────────────┐                     │
+│              │   Supervisor Agent     │ ◀──── Review Reports│
+│              │  (Always Watching)     │                     │
+│              └───────────┬────────────┘                     │
+│                          │                                  │
+│                          ▼                                  │
+│              ┌────────────────────────┐                     │
+│              │  Correction Injection  │                     │
+│              │  (Re-prompt if needed) │                     │
+│              └────────────────────────┘                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Proposed Changes
+
+### [NEW] [supervisor_agent.py](file:///c:/Users/Andrewq/Downloads/DevSquad-AI/backend/agents/supervisor_agent.py)
+
+A new agent class that:
+- Does NOT participate in normal handoff chain
+- Runs silently after each agent turn completes
+- Uses a fast, low-temp model (Gemini Flash @ 0.1) for deterministic analysis
+- Returns one of: `"OK"`, `"NEEDS_CORRECTION"`, or `"CRITICAL_FAILURE"`
+- If correction needed, provides the exact message to inject
+
+**Key Methods**:
+```python
+async def analyze_turn(
+    self,
+    agent_name: str,
+    thoughts: str,
+    message: str,
+    cues_detected: list,
+    checklist: list,
+    review_reports: list
+) -> dict:
+    """
+    Returns:
+    {
+        "status": "OK" | "NEEDS_CORRECTION" | "CRITICAL_FAILURE",
+        "issue": "Missing handoff to Senior Dev",
+        "correction_message": "You forgot to hand off. Please add [→SENIOR] and try again.",
+        "learning": "Junior Dev tends to skip handoffs after simple tasks."
+    }
+    """
+```
+
+---
+
+### [MODIFY] [orchestrator.py](file:///c:/Users/Andrewq/Downloads/DevSquad-AI/backend/agents/orchestrator.py)
+
+**Changes**:
+1. Import `SupervisorAgent`
+2. Initialize it in [__init__](file:///c:/Users/Andrewq/Downloads/DevSquad-AI/backend/agents/senior_dev.py#12-21)
+3. After each turn (after cue extraction), call `supervisor.analyze_turn()`
+4. If `status == "NEEDS_CORRECTION"`:
+   - Yield a `correction` event to the frontend
+   - Re-prompt the **same agent** with the correction message
+   - Increment a "correction_attempts" counter (max 2 retries)
+5. Store learnings in `self.supervisor_learnings` for session persistence
+
+**Code Location**: After line ~690 (after cue detection) but before handoff logic.
+
+---
+
+### [MODIFY] [review_service.py](file:///c:/Users/Andrewq/Downloads/DevSquad-AI/backend/services/review_service.py)
+
+**Changes**:
+1. Make `self.latest_review` publicly accessible
+2. Add `get_all_session_reviews()` method for Supervisor to consume
+
+---
+
+## Supervisor Prompt (Core Logic)
+
+```markdown
+# Supervisor Agent 👁️
+
+You are the **silent overseer** of a multi-agent development team. 
+You do NOT write code. You analyze agent behavior and detect failures.
+
+## Your Responsibilities
+1. **Detect Missing Handoffs**: If an agent says "I implemented X" but doesn't include `[→SENIOR]`, flag it.
+2. **Detect Incomplete Turns**: If an agent's thoughts say "I should X" but their message doesn't do X, flag it.
+3. **Learn from Reviews**: Read Review Agent reports. If an agent repeatedly makes the same mistake, note it.
+4. **Never Be Lenient**: You exist to catch what others miss. A missed cue is a failure.
+
+## Output Format
+{
+  "status": "OK" | "NEEDS_CORRECTION" | "CRITICAL_FAILURE",
+  "issue": "Brief description of the problem",
+  "correction_message": "Exact message to inject to fix the issue",
+  "learning": "Pattern to remember for future sessions"
+}
+```
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> This adds a **new agent** that runs automatically after every turn. It will increase latency slightly (~1-2s per turn) but significantly improve reliability.
+
+> [!WARNING]
+> The "correction injection" mechanism will cause agents to retry their turn if they make a mistake. This could theoretically cause loops if the Supervisor is too aggressive. A max retry limit (2) is included to prevent this.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+1. Run the "calculator" task again
+2. Verify Supervisor catches the missing handoff
+3. Verify correction is injected and agent retries successfully
+
+### Manual Verification
+1. Check backend logs for `[Supervisor]` messages
+2. Confirm Review Agent reports are being consumed
+3. Verify no infinite loops occur

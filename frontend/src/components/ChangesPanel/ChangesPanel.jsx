@@ -85,83 +85,85 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
     const renderChangeCard = (change, isApproved = false) => {
         const changeId = change.id || change.change_id;
         const language = getLanguage(change.path);
+        const agentColor = change.agent === 'Senior Dev' ? '#818cf8' :
+            change.agent === 'Junior Dev' ? '#34d399' :
+                change.agent === 'Unit Tester' ? '#f59e0b' : '#94a3b8';
 
         return (
             <div key={changeId} className="card" style={{
-                border: isApproved ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid var(--border-color)',
-                background: isApproved ? 'rgba(34, 197, 94, 0.05)' : 'var(--bg-elevated)',
+                border: isApproved ? '1px solid rgba(34, 197, 94, 0.1)' : '1px solid rgba(255,255,255,0.05)',
+                background: isApproved ? 'rgba(34, 197, 94, 0.02)' : 'rgba(255,255,255,0.02)',
+                borderRadius: '8px',
                 overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
-                opacity: isApproved ? 0.8 : 1,
-                position: 'relative' // Added for absolute positioning of badge
+                transition: 'all 0.2s ease',
+                opacity: isApproved ? 0.7 : 1,
             }}>
-                {isApproved && (
-                    <span style={{
-                        position: 'absolute',
-                        top: '4px',
-                        right: '4px',
-                        fontSize: '0.6rem',
-                        color: '#4ade80',
-                        fontWeight: 'bold',
-                        background: 'rgba(34, 197, 94, 0.15)',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        border: '1px solid rgba(34, 197, 94, 0.2)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '3px',
-                        zIndex: 10,
-                        pointerEvents: 'none',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                    }}>
-                        <span>✅</span> APPROVED
-                    </span>
-                )}
                 <div className="change-header" style={{
-                    padding: '12px',
-                    background: isApproved ? 'rgba(34, 197, 94, 0.1)' : 'rgba(255,255,255,0.03)',
+                    padding: '8px 12px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    cursor: 'pointer'
+                    cursor: 'pointer',
+                    gap: '10px'
                 }} onClick={() => toggleCollapse(changeId)}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
-                        <span style={{ fontSize: '1.2rem', flexShrink: 0 }}>
-                            {change.action === 'create' ? '🆕' : change.action === 'delete' ? '🗑️' : '📝'}
-                        </span>
-                        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
-                            <span style={{
-                                fontWeight: 600,
-                                fontSize: '0.875rem',
-                                color: 'var(--text-primary)',
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis'
-                            }} title={change.path.split('/').pop()}>
-                                {change.path.split('/').pop()}
-                            </span>
-                            <span style={{
-                                fontSize: '0.75rem',
-                                color: 'var(--text-muted)',
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis'
-                            }} title={change.path}>
-                                {change.path}
-                            </span>
-                            <div style={{ display: 'flex', gap: '8px', fontSize: '0.65rem', marginTop: '2px', opacity: 0.7 }}>
-                                {change.agent && (
-                                    <span style={{ color: 'var(--neon-blue)' }}>👤 {change.agent}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                        <div style={{
+                            width: '24px',
+                            height: '24px',
+                            borderRadius: '4px',
+                            background: 'rgba(255,255,255,0.05)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '11px',
+                            flexShrink: 0
+                        }}>
+                            {change.action === 'create' ? '➕' : change.action === 'delete' ? '🗑️' : '✏️'}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{
+                                    fontWeight: 600,
+                                    fontSize: '13px',
+                                    color: '#eee',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis'
+                                }}>
+                                    {change.path.split('/').pop()}
+                                </span>
+                                {isApproved && (
+                                    <span style={{
+                                        fontSize: '9px',
+                                        color: '#22c55e',
+                                        background: 'rgba(34, 197, 94, 0.1)',
+                                        padding: '1px 5px',
+                                        borderRadius: '3px',
+                                        fontWeight: '700',
+                                        textTransform: 'uppercase'
+                                    }}>
+                                        Approved
+                                    </span>
                                 )}
-                                {change.created_at && (
-                                    <span>🕒 {new Date(change.created_at).toLocaleTimeString()}</span>
-                                )}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#666' }}>
+                                <span style={{ color: agentColor, fontWeight: 500 }}>{change.agent}</span>
+                                <span>•</span>
+                                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '150px' }}>
+                                    {change.path}
+                                </span>
                             </div>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }}>
-                        <span style={{ transform: collapsed[changeId] ? 'rotate(-90deg)' : 'none', transition: 'transform 0.2s' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                        <span style={{
+                            fontSize: '10px',
+                            transform: collapsed[changeId] ? 'rotate(-90deg)' : 'none',
+                            transition: 'transform 0.2s',
+                            opacity: 0.5
+                        }}>
                             ▼
                         </span>
                     </div>
@@ -171,10 +173,11 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
                     <div className="change-body" style={{ display: 'flex', flexDirection: 'column' }}>
                         {isFullScreen ? (
                             <div className="diff-view-container" style={{
-                                maxHeight: 'calc(100vh - 140px)',
+                                maxHeight: isFullScreen ? 'calc(100vh - 140px)' : '400px',
                                 overflow: 'auto',
                                 background: '#1e1e1e',
-                                fontSize: '0.875rem'
+                                fontSize: '0.875rem',
+                                minWidth: 0
                             }}>
                                 <ReactDiffViewer
                                     oldValue={change.action === 'create' ? '' : (change.old_content || '')}
@@ -245,37 +248,38 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
                                         },
                                         contentText: {
                                             fontFamily: 'var(--font-mono)',
-                                            fontSize: isFullScreen ? '0.875rem' : '0.75rem',
-                                            lineHeight: '1.5',
-                                            paddingLeft: '8px',
+                                            fontSize: isFullScreen ? '0.875rem' : '0.8rem',
+                                            lineHeight: '1.6',
+                                            paddingLeft: '12px',
                                             textAlign: 'left',
-                                            wordBreak: 'break-all',
-                                            whiteSpace: 'pre-wrap'
+                                            whiteSpace: 'pre-wrap',
+                                            wordBreak: 'break-all'
                                         }
                                     }}
                                 />
                             </div>
                         ) : (
                             <div className="change-stats" style={{
-                                padding: '24px',
+                                padding: '12px',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 gap: '24px',
-                                background: '#1e1e1e'
+                                background: 'rgba(0,0,0,0.15)',
+                                borderTop: '1px solid rgba(255,255,255,0.03)'
                             }}>
                                 {(() => {
                                     const stats = calculateStats(change.old_content || '', change.new_content || '');
                                     return (
                                         <>
                                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '1.5rem', color: '#4ade80', fontWeight: 'bold' }}>+{stats.added}</span>
-                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Lines Added</span>
+                                                <span style={{ fontSize: '1rem', color: '#22c55e', fontWeight: 'bold' }}>+{stats.added}</span>
+                                                <span style={{ fontSize: '9px', color: '#555', textTransform: 'uppercase' }}>Added</span>
                                             </div>
-                                            <div style={{ width: '1px', height: '40px', background: 'var(--border-color)' }}></div>
+                                            <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.05)' }}></div>
                                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '1.5rem', color: '#f87171', fontWeight: 'bold' }}>-{stats.removed}</span>
-                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Lines Removed</span>
+                                                <span style={{ fontSize: '1rem', color: '#ef4444', fontWeight: 'bold' }}>-{stats.removed}</span>
+                                                <span style={{ fontSize: '9px', color: '#555', textTransform: 'uppercase' }}>Removed</span>
                                             </div>
                                         </>
                                     );
@@ -286,24 +290,24 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
                         {!isApproved && (
                             <div className="change-actions" style={{
                                 display: 'flex',
-                                gap: '10px',
-                                padding: '12px',
-                                borderTop: '1px solid var(--border-color)',
-                                background: 'rgba(255,255,255,0.02)'
+                                gap: '8px',
+                                padding: '10px 12px',
+                                borderTop: '1px solid rgba(255,255,255,0.03)',
+                                background: 'rgba(255,255,255,0.01)'
                             }}>
                                 <button
-                                    className="btn btn-success"
-                                    style={{ flex: 1, padding: '6px' }}
+                                    className="btn btn-success compact"
+                                    style={{ flex: 1, padding: '8px', fontSize: '12px', fontWeight: '600' }}
                                     onClick={() => onApprove(changeId)}
                                 >
-                                    ✅ Approve
+                                    Approve
                                 </button>
                                 <button
-                                    className="btn btn-danger"
-                                    style={{ flex: 1, padding: '6px' }}
+                                    className="btn btn-danger compact"
+                                    style={{ flex: 1, padding: '8px', fontSize: '12px', fontWeight: '600', opacity: 0.6 }}
                                     onClick={() => onReject(changeId)}
                                 >
-                                    ❌ Reject
+                                    Reject
                                 </button>
                             </div>
                         )}
@@ -448,11 +452,11 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
             <div className="changes-list" style={{
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '16px',
+                gap: '8px',
                 flex: 1,
                 overflowY: 'auto',
                 overflowX: 'hidden',
-                paddingRight: '4px' // Prevent scrollbar overlap
+                paddingRight: '2px'
             }}>
                 {pendingChanges.length === 0 && (!approvedChanges || approvedChanges.length === 0) && (
                     <div style={{
@@ -473,22 +477,23 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
                 {pendingChanges.map((change) => renderChangeCard(change, false))}
 
                 {approvedChanges && approvedChanges.length > 0 && (
-                    <div className="approved-changes-section" style={{ marginTop: '24px' }}>
+                    <div className="approved-changes-section" style={{ marginTop: '16px' }}>
                         <div style={{
                             display: 'flex',
                             alignItems: 'center',
                             gap: '8px',
-                            marginBottom: '12px',
-                            color: '#4ade80',
-                            fontSize: '0.8rem',
+                            marginBottom: '10px',
+                            color: '#22c55e',
+                            fontSize: '11px',
                             fontWeight: 600,
                             textTransform: 'uppercase',
-                            letterSpacing: '0.05em'
+                            letterSpacing: '0.05em',
+                            opacity: 0.6
                         }}>
-                            <span>✓ Recently Approved</span>
-                            <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }}></div>
+                            <span>Recently Approved</span>
+                            <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.05)' }}></div>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {approvedChanges.map((change) => renderChangeCard(change, true))}
                         </div>
                     </div>

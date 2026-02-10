@@ -63,14 +63,31 @@
 .message-body {
     background: var(--bg-tertiary);
     border-radius: var(--radius-lg);
-    padding: var(--space-lg);
-    font-size: 0.9375rem;
-    line-height: 1.7;
+    padding: var(--space-md);
+    font-size: 0.9rem;
+    line-height: 1.6;
     overflow-wrap: break-word;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+.message-body pre {
+    background: #0d0d0d !important;
+    padding: var(--space-md);
+    border-radius: var(--radius-md);
+    margin: var(--space-md) 0;
+    overflow-x: auto;
+    border: 1px solid var(--border-color);
+    max-width: 100%;
+}
+
+.message-body code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
 }
 
 .message-body p {
-    margin-bottom: var(--space-md);
+    margin-bottom: var(--space-sm);
 }
 
 .message-body ul,
@@ -193,13 +210,25 @@
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     padding: var(--space-sm) var(--space-md);
     position: absolute;
-    top: 0;
+    bottom: 100%;
+    /* Move to sit on top of the input area */
     left: 0;
     right: 0;
-    transform: translateY(-100%);
     z-index: 10;
     box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.5);
-    animation: elevator-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: slideUpFade 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUpFade {
+    from {
+        transform: translateY(10px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
 }
 
 @keyframes elevator-up {
@@ -314,12 +343,15 @@
 .task-complete-indicator {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #4ade80;
-    opacity: 0.8;
+    gap: 8px;
+    margin-top: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    /* More subtle */
+    opacity: 0.9;
+    padding: 4px 8px;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.03);
+    width: fit-content;
 }

@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import './Header.css'
 
-function Header({ isConnected, usage, onNewChat, activeTab, onTabChange }) {
+function Header({ isConnected, usage, onNewChat, activeTab, onTabChange, hasPendingPlan }) {
     return (
         <header className="header">
             <div className="logo">
@@ -30,6 +30,31 @@ function Header({ isConnected, usage, onNewChat, activeTab, onTabChange }) {
                         style={{ fontSize: '0.75rem', padding: '6px 12px' }}
                     >
                         💬 Chat
+                    </button>
+                    <button
+                        className={`btn ${activeTab === 'tasks' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => onTabChange('tasks')}
+                        style={{ fontSize: '0.75rem', padding: '6px 12px', position: 'relative' }}
+                    >
+                        📋 Tasks
+                        {hasPendingPlan && (
+                            <span style={{
+                                position: 'absolute',
+                                top: '-4px',
+                                right: '-4px',
+                                width: '12px',
+                                height: '12px',
+                                background: '#ef4444',
+                                borderRadius: '50%',
+                                fontSize: '8px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'white',
+                                fontWeight: 'bold',
+                                animation: 'pulse 2s infinite'
+                            }}>!</span>
+                        )}
                     </button>
                     <button
                         className={`btn ${activeTab === 'dashboard' ? 'btn-primary' : 'btn-secondary'}`}

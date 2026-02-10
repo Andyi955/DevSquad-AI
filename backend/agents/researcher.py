@@ -15,7 +15,8 @@ class ResearcherAgent(BaseAgent):
             emoji="🔍",
             provider="gemini",
             model="gemini-3-flash-preview",
-            color="#06b6d4"  # Cyan
+            color="#06b6d4",  # Cyan
+            temperature=0.2
         )
     
     def _prompt_name(self) -> str:

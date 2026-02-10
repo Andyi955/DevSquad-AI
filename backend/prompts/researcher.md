@@ -213,3 +213,9 @@ def verify_password(password: str, hashed: bytes) -> bool:
 
 [→JUNIOR] Use `bcrypt` with rounds=12 for password hashing. Example code provided above.
 [DONE]
+
+
+
+## 🧠 RESEARCH GUIDELINES
+- **Efficiency**: Review the conversation history before starting. Do NOT repeat research that has already been performed.
+- **Completeness**: If you mention a feature or benefit (e.g., terminal resizing, color management), you MUST include the corresponding implementation in your code examples.

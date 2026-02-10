@@ -15,7 +15,8 @@ class UnitTesterAgent(BaseAgent):
             emoji="🧪",
             provider="gemini",
             model="gemini-3-flash-preview",
-            color="#f59e0b"  # Amber
+            color="#f59e0b",  # Amber
+            temperature=0.2
         )
     
     def _prompt_name(self) -> str:

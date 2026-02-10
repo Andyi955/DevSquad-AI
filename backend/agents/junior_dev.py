@@ -15,7 +15,8 @@ class JuniorDevAgent(BaseAgent):
             emoji="🐣",
             provider="gemini",
             model="gemini-3-flash-preview",
-            color="#22c55e"  # Green
+            color="#22c55e",  # Green
+            temperature=0.2
         )
     
     def _prompt_name(self) -> str:

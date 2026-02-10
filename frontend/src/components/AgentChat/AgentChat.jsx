@@ -33,12 +33,14 @@ function AgentChat({
     onAttachFiles,
     onRemoveFile,
     onShowChanges,
-    onRunCommand
+    onRunCommand,
+    onRate
 }) {
     const [input, setInput] = useState('')
     const [showContinuePrompt, setShowContinuePrompt] = useState(false)
     const [isDraggingFile, setIsDraggingFile] = useState(false)
     const [agentStatus, setAgentStatus] = useState('')
+    const [ratedMessages, setRatedMessages] = useState({}) // { messageId: rating }
 
     const getFileIcon = (ext) => {
         const icons = {
@@ -59,12 +61,17 @@ function AgentChat({
     const messagesEndRef = useRef(null)
     const inputRef = useRef(null)
 
-    // Handle agent status updates from messages
+    // Handle agent status updates from messages and timeouts
     useEffect(() => {
         const lastMsg = messages[messages.length - 1];
 
-        if (lastMsg && lastMsg.type === 'agent_status') {
-            setAgentStatus(lastMsg.status);
+        if (lastMsg) {
+            if (lastMsg.type === 'agent_status') {
+                setAgentStatus(lastMsg.status);
+            }
+            if (lastMsg.isTimeout) {
+                setShowContinuePrompt(true);
+            }
         }
 
         // If typing stopped or message is complete, clear status after a delay
@@ -86,6 +93,7 @@ function AgentChat({
         if (input.trim() && isConnected) {
             onSendMessage(input.trim())
             setInput('')
+            setShowContinuePrompt(false)
         }
     }
 
@@ -300,8 +308,16 @@ function AgentChat({
             });
         };
 
-        // Safety check: Don't render functionally empty messages
-        if (!content?.trim() && !msg.thoughts?.trim() && !msg.type) {
+        // Safety check: Don't render functionally empty messages unless they are error messages or special markers
+        if (!content?.trim() && !msg.thoughts?.trim() && !msg.type && !msg.isError) {
+            // If completely empty, we might want to hide it OR show a 'broken' state if it's old
+            if (msg.complete) {
+                return (
+                    <div key={msg.id} className="message system-message" style={{ opacity: 0.5 }}>
+                        <span style={{ fontSize: '0.8rem' }}>⚠️ Empty response from {msg.agent}</span>
+                    </div>
+                );
+            }
             return null;
         }
 
@@ -329,97 +345,13 @@ function AgentChat({
                         </span>
                     </div>
 
-                    <div
-                        className={msg.type === 'agent_status' ? 'status-body' : 'message-body'}
-                        style={isUser ? {
-                            background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-blue))',
-                            color: 'white'
-                        } : {}}
-                    >
-                        {msg.type === 'agent_status' && <span className="status-spinner">⚙️</span>}
-                        <ReactMarkdown
-                            rehypePlugins={[rehypeHighlight]}
-                            components={{
-                                p: ({ children }) => {
-                                    // Process children to hide mission tags and style mentions
-                                    const processedChildren = React.Children.map(children, (child) => {
-                                        if (typeof child === 'string') {
-                                            const cleaned = child.replace(/✅?(\[)?MISSION ACCOMPLISHED(\])?/g, '').trim();
-                                            return cleaned ? renderStyledContent(cleaned) : null;
-                                        }
-                                        return child;
-                                    }).filter(Boolean);
-
-                                    if (processedChildren.length === 0) return null;
-
-                                    return (
-                                        <p>
-                                            {processedChildren}
-                                        </p>
-                                    );
-                                },
-                                code({ node, inline, className, children, ...props }) {
-                                    const match = /language-(\w+)/.exec(className || '')
-                                    const content = String(children).replace(/\n$/, '')
-                                    // Heuristic: if code is short (buffer < 60 chars) and single line, force inline style
-                                    // even if markdown parser thought it was a block (e.g. from triple backticks)
-                                    const isShortSingleLine = content.length < 60 && !content.includes('\n')
-                                    const shouldRenderInline = inline || isShortSingleLine
-
-                                    return !shouldRenderInline ? (
-                                        <code className={className} {...props} style={{
-                                            display: 'block',
-                                            padding: '1em',
-                                            borderRadius: '6px',
-                                            background: '#1a1a1a', // Darker background
-                                            border: '1px solid #333',
-                                            margin: '8px 0',
-                                            overflowX: 'auto'
-                                        }}>
-                                            {children}
-                                        </code>
-                                    ) : (
-                                        <code className={className} {...props} style={{
-                                            background: 'rgba(147, 51, 234, 0.1)', // Matches CSS var(--neon-purple) with opacity
-                                            color: 'var(--neon-purple)',
-                                            padding: '2px 5px',
-                                            borderRadius: '4px',
-                                            fontSize: '0.9em',
-                                            fontWeight: '500',
-                                            border: '1px solid rgba(147, 51, 234, 0.15)',
-                                            verticalAlign: 'baseline',
-                                            fontFamily: 'var(--font-mono)'
-                                        }}>
-                                            {children}
-                                        </code>
-                                    )
-                                }
-                            }}
-                        >
-                            {content}
-                        </ReactMarkdown>
-                        {diffSummary}
-
-                        {commandMatches.length > 0 && (
-                            <div className="command-buttons-container" style={{ marginTop: '8px' }}>
-                                {commandMatches.map((cmd, idx) => (
-                                    <RunCommandButton
-                                        key={idx}
-                                        command={cmd}
-                                        onRun={() => onRunCommand && onRunCommand(cmd)}
-                                    />
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Native Collapsible Thoughts */}
+                    {/* Native Collapsible Thoughts - Moved BEFORE content as requested */}
                     {msg.thoughts && (
                         <details
                             className="thought-details"
                             open={!msg.content} // Keep open while ONLY thinking, close when content starts
                             style={{
-                                marginTop: '8px',
+                                marginBottom: '8px', // Added margin bottom since it's now first
                                 border: '1px solid rgba(255,255,255,0.05)',
                                 borderRadius: '12px',
                                 background: 'rgba(0,0,0,0.3)',
@@ -442,7 +374,7 @@ function AgentChat({
                             }}>
                                 <span className="thought-icon" style={{ opacity: 0.7 }}>🧠</span>
                                 <span style={{ textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-                                    {msg.content ? 'Reasoning History' : 'DeepThink Reasoning...'}
+                                    {msg.content ? 'Reasoning Process' : 'DeepThink Reasoning...'}
                                 </span>
                             </summary>
                             <div className="thought-content" style={{
@@ -453,11 +385,163 @@ function AgentChat({
                                 color: 'rgba(255,255,255,0.7)',
                                 background: 'rgba(0,0,0,0.1)',
                                 whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                overflowX: 'auto',
                                 fontFamily: 'var(--font-mono)'
                             }}>
-                                {msg.thoughts}
+                                {msg.thoughts.trim()}
                             </div>
                         </details>
+                    )}
+
+                    {msg.is_technical ? (
+                        <div className="task-complete-indicator" style={{
+                            margin: 0,
+                            borderTop: 'none',
+                            paddingTop: 0,
+                            justifyContent: 'flex-start'
+                        }}>
+                            <span className="status-spinner" style={{ fontSize: '0.9em', filter: 'grayscale(1)' }}>⚙️</span>
+                            <span style={{ fontStyle: 'italic', opacity: 0.7 }}>
+                                {msg.concise_message ? msg.concise_message.replace(/_/g, '') : "Processing..."}
+                            </span>
+                        </div>
+                    ) : (
+                        <div
+                            className={msg.type === 'agent_status' ? 'status-body' : 'message-body'}
+                            style={isUser ? {
+                                background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-blue))',
+                                color: 'white'
+                            } : {}}
+                        >
+                            {msg.type === 'agent_status' && <span className="status-spinner">⚙️</span>}
+                            <ReactMarkdown
+                                rehypePlugins={[rehypeHighlight]}
+                                components={{
+                                    p: ({ children }) => {
+                                        // Process children to hide mission tags and style mentions
+                                        const processedChildren = React.Children.map(children, (child) => {
+                                            if (typeof child === 'string') {
+                                                const cleaned = child.replace(/✅?(\[)?MISSION ACCOMPLISHED(\])?/g, '').trim();
+                                                return cleaned ? renderStyledContent(cleaned) : null;
+                                            }
+                                            return child;
+                                        }).filter(Boolean);
+
+                                        if (processedChildren.length === 0) return null;
+
+                                        return (
+                                            <p>
+                                                {processedChildren}
+                                            </p>
+                                        );
+                                    },
+                                    code({ node, inline, className, children, ...props }) {
+                                        const match = /language-(\w+)/.exec(className || '')
+                                        const content = String(children).replace(/\n$/, '')
+                                        // Heuristic: if code is short (buffer < 60 chars) and single line, force inline style
+                                        // even if markdown parser thought it was a block (e.g. from triple backticks)
+                                        const isShortSingleLine = content.length < 60 && !content.includes('\n')
+                                        const shouldRenderInline = inline || isShortSingleLine
+
+                                        return !shouldRenderInline ? (
+                                            <code className={className} {...props} style={{
+                                                display: 'block',
+                                                padding: '1em',
+                                                borderRadius: '6px',
+                                                background: '#1a1a1a', // Darker background
+                                                border: '1px solid #333',
+                                                margin: '8px 0',
+                                                overflowX: 'auto'
+                                            }}>
+                                                {children}
+                                            </code>
+                                        ) : (
+                                            <code className={className} {...props} style={{
+                                                background: 'rgba(147, 51, 234, 0.1)', // Matches CSS var(--neon-purple) with opacity
+                                                color: 'var(--neon-purple)',
+                                                padding: '2px 5px',
+                                                borderRadius: '4px',
+                                                fontSize: '0.9em',
+                                                fontWeight: '500',
+                                                border: '1px solid rgba(147, 51, 234, 0.15)',
+                                                verticalAlign: 'baseline',
+                                                fontFamily: 'var(--font-mono)'
+                                            }}>
+                                                {children}
+                                            </code>
+                                        )
+                                    }
+                                }}
+                            >
+                                {content}
+                            </ReactMarkdown>
+                            {diffSummary}
+
+                            {commandMatches.length > 0 && (
+                                <div className="command-buttons-container" style={{ marginTop: '8px' }}>
+                                    {commandMatches.map((cmd, idx) => (
+                                        <RunCommandButton
+                                            key={idx}
+                                            command={cmd}
+                                            onRun={() => onRunCommand && onRunCommand(cmd)}
+                                        />
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Rating UI */}
+                            {!isUser && msg.complete && (
+                                <div className="message-rating" style={{
+                                    display: 'flex',
+                                    gap: '8px',
+                                    marginTop: '12px',
+                                    paddingTop: '8px',
+                                    borderTop: '1px solid rgba(255,255,255,0.05)'
+                                }}>
+                                    <button
+                                        onClick={() => {
+                                            const newRated = { ...ratedMessages, [msg.id]: 1 };
+                                            setRatedMessages(newRated);
+                                            onRate && onRate(msg, 1);
+                                        }}
+                                        disabled={ratedMessages[msg.id]}
+                                        style={{
+                                            background: ratedMessages[msg.id] === 1 ? 'rgba(34, 197, 94, 0.2)' : 'transparent',
+                                            border: 'none',
+                                            cursor: ratedMessages[msg.id] ? 'default' : 'pointer',
+                                            fontSize: '0.8rem',
+                                            padding: '4px 8px',
+                                            borderRadius: '4px',
+                                            color: ratedMessages[msg.id] === 1 ? '#4ade80' : 'rgba(255,255,255,0.4)',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        👍 Helpful
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            const newRated = { ...ratedMessages, [msg.id]: -1 };
+                                            setRatedMessages(newRated);
+                                            onRate && onRate(msg, -1);
+                                        }}
+                                        disabled={ratedMessages[msg.id]}
+                                        style={{
+                                            background: ratedMessages[msg.id] === -1 ? 'rgba(239, 68, 68, 0.2)' : 'transparent',
+                                            border: 'none',
+                                            cursor: ratedMessages[msg.id] ? 'default' : 'pointer',
+                                            fontSize: '0.8rem',
+                                            padding: '4px 8px',
+                                            borderRadius: '4px',
+                                            color: ratedMessages[msg.id] === -1 ? '#f87171' : 'rgba(255,255,255,0.4)',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        👎 Unhelpful
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     )}
                 </div>
             </div>
@@ -597,7 +681,10 @@ function AgentChat({
                         <button
                             type="button"
                             className="btn btn-danger"
-                            onClick={onStop}
+                            onClick={() => {
+                                onStop();
+                                setShowContinuePrompt(false);
+                            }}
                             title="Stop generating"
                         >
                             🛑 Stop

@@ -36,13 +36,15 @@ class BaseAgent(ABC):
         emoji: str,
         provider: str = "gemini",  # "gemini" or "deepseek"
         model: str = None,
-        color: str = "#00ff88"
+        color: str = "#00ff88",
+        temperature: float = 0.5
     ):
         self.name = name
         self.emoji = emoji
         self.provider = provider
         self.color = color
         self.model = model
+        self.temperature = temperature
         self.conversation_history = []
         
         # Always initialize BOTH clients for Hybrid DeepThink
@@ -102,6 +104,10 @@ class BaseAgent(ABC):
         
         # Build the full prompt with context
         full_prompt = self._build_prompt(message, context)
+        
+        # Logging for debugging
+        print(f"📡 [DEBUG] Agent {self.name} receiving prompt (first 500 chars):\n{full_prompt[:500]}...")
+        print(f"📡 [DEBUG] Model: {self.model}, Provider: {self.provider}")
         
         # State for parsing
         in_thought = False
@@ -218,7 +224,7 @@ class BaseAgent(ABC):
             
             if context.get("attached_files"):
                 for f in context["attached_files"]:
-                    active_context.append({"path": f["path"], "content": f["content"], "type": "Attached"})
+                    active_context.append({"path": f["path"], "content": f.get("content", ""), "type": "Attached"})
                     seen_paths.add(f["path"])
             
             if context.get("current_file") and context["current_file"]["path"] not in seen_paths:
@@ -271,7 +277,7 @@ class BaseAgent(ABC):
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_prompt,
-                    temperature=0.7,  # Slightly higher for more creative responses
+                    temperature=self.temperature,
                     max_output_tokens=65536
                 )
             )

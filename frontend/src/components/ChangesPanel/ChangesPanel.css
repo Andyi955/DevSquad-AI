@@ -36,6 +36,16 @@
 
 .diff-view-container td.diff-content {
     padding-left: 8px !important;
+    text-align: left !important;
+}
+
+.diff-view-container td.diff-content pre,
+.diff-view-container td.diff-content code {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    white-space: pre-wrap !important;
+    word-break: break-all !important;
 }
 
 .diff-summary-chip {

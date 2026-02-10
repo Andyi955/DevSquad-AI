@@ -1,0 +1,94 @@
+--- AGENT REPORT ---
+Agent: Researcher
+Timestamp: 2026-02-10T17:56:38.539602
+Content:
+THOUGHTS:
+
+Research question: Python curses for terminal game development (cross-platform, non-blocking input, colors, game loop).
+Sources to check:
+1. Python official `curses` documentation.
+2. `windows-curses` PyPI documentation.
+3. Tutorials on curses-based games (Snake).
+Focus areas: Compatibility, `nodelay()`, `init_pair()`, and `timeout()`.
+
+
+RESPONSE:
+
+
+[SEARCH: "python curses cross-platform windows-curses best practices"]
+[SEARCH: "python curses non-blocking input nodelay timeout"]
+[SEARCH: "python curses color_pair init_pair example"]
+[SEARCH: "python curses game loop refresh rate"]
+
+### 📚 Research: Terminal Rendering with Curses
+
+**Summary**: The `curses` module is the standard for terminal-based UIs in Python. While native to Unix-like systems, cross-platform support is achieved via the `windows-curses` wrapper. It provides efficient screen updates by only redrawing changed characters.
+
+**Key Findings**:
+
+1.  **Cross-Platform Compatibility**:
+    *   **Unix/macOS**: `curses` is included in the Python Standard Library.
+    *   **Windows**: The standard library `curses` module is missing. The `windows-curses` package (installable via `pip`) provides a binary shim that allows the exact same `import curses` code to work on Windows.
+    *   **Implementation**: Use `curses.wrapper(main_func)` to handle initialization and automatic terminal restoration on exit/error.
+
+2.  **Non-Blocking Input**:
+    *   By default, `getch()` pauses execution until a key is pressed.
+    *   **`stdscr.nodelay(True)`**: Makes `getch()` non-blocking. It returns `-1` if no key is pressed.
+    *   **`stdscr.timeout(ms)`**: A better approach for games. It waits for `ms` milliseconds for input; if none, it returns `-1`. This effectively sets the game's frame rate (e.g., `timeout(100)` = 10 FPS).
+
+3.  **Color Management**:
+    *   **Initialization**: Call `curses.start_color()` after initializing the screen.
+    *   **Color Pairs**: Curses uses "pairs" of foreground and background colors. Define them using `curses.init_pair(id, foreground, background)`.
+    *   **Usage**: Apply colors using `stdscr.attron(curses.color_pair(id))` or passing the attribute to `addstr()`.
+
+4.  **Game Loop & Rendering**:
+    *   **Efficiency**: Use `stdscr.erase()` or `stdscr.clear()` to wipe the screen, but `erase()` is generally preferred for performance as it doesn't force a full repaint of the physical terminal.
+    *   **Double Buffering**: Curses handles this internally. Changes are staged in memory and only pushed to the terminal when `stdscr.refresh()` is called.
+    *   **Terminal Resizing**: Handle `curses.KEY_RESIZE` in the input loop to prevent crashes when the user resizes the window.
+
+**Code Example**:
+```python
+import curses
+
+def main(stdscr):
+    # 1. Setup
+    curses.curs_set(0) # Hide cursor
+    stdscr.nodelay(True) # Non-blocking input
+    stdscr.timeout(100) # Wait 100ms for input (10 FPS)
+    
+    # 2. Colors
+    curses.start_color()
+    curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK) # Snake
+    curses.init_pair(2, curses.COLOR_RED, curses.COLOR_BLACK)   # Food
+
+    while True:
+        stdscr.erase()
+        
+        # 3. Input Handling
+        key = stdscr.getch()
+        if key == ord('q'): break
+        
+        # 4. Rendering
+        stdscr.addstr(0, 0, "Snake Game - Press 'q' to quit", curses.A_BOLD)
+        stdscr.addstr(5, 5, "S", curses.color_pair(1)) # Green Snake
+        stdscr.addstr(10, 10, "F", curses.color_pair(2)) # Red Food
+        
+        stdscr.refresh()
+
+if __name__ == "__main__":
+    curses.wrapper(main)
+```
+
+**Sources**:
+- [Python Curses Documentation](https://docs.python.org/3/howto/curses.html) - Official guide for terminal handling.
+- [windows-curses PyPI](https://pypi.org/project/windows-curses/) - Essential for Windows support.
+- [Curses Programming with Python](https://docs.python.org/3/library/curses.html) - API reference for `nodelay` and `timeout`.
+
+**Recommendation**: Use `curses.wrapper` for safety, `stdscr.timeout()` for the game clock, and `windows-curses` in `requirements.txt` for Windows users.
+
+[CHECKLIST_UPDATE]
+- [x] 2. Research terminal-based rendering techniques using curses or windows-curses for cross-platform compatibility (→RESEARCH)
+[/CHECKLIST_UPDATE]
+
+[→JUNIOR] You can now implement the core game logic. Use the `curses` constants for keys (e.g., `curses.KEY_UP`) and ensure the `Snake` class is independent of the rendering logic so it can be unit tested easily.
+[DONE]

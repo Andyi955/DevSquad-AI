@@ -13,6 +13,8 @@ import TimelineView from './components/Timeline/TimelineView'
 import TerminalComponent from './components/Terminal' // Import Terminal
 import './components/ResizeHandles.css' // Layout Resizing
 import Dashboard from './pages/Dashboard'
+import TaskPanel from './components/TaskPanel/TaskPanel'
+import ConfirmationModal from './components/ConfirmationModal/ConfirmationModal'
 
 
 // Hooks
@@ -45,6 +47,17 @@ function App() {
   const [researchReport, setResearchReport] = useState(null)
   const [timeline, setTimeline] = useState([]) // New activity timeline
   const [hasTerminalActivity, setHasTerminalActivity] = useState(false) // Notification dot for terminal
+  const [pendingPlan, setPendingPlan] = useState(null) // Pending task plan for approval
+  const [modalConfirm, setModalConfirm] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    itemPath: '',
+    confirmText: 'Confirm',
+    onConfirm: null,
+    isDanger: true,
+    coords: null
+  })
 
   // Layout State
   const [leftPanelWidth, setLeftPanelWidth] = useState(260)
@@ -200,7 +213,11 @@ function App() {
             const index = prev.findLastIndex(m => !m.isUser && m.type !== 'handoff');
             if (index !== -1) {
               const updated = [...prev];
-              updated[index] = { ...updated[index], concise_message: data.concise_message };
+              updated[index] = {
+                ...updated[index],
+                concise_message: data.concise_message,
+                is_technical: data.is_technical
+              };
               return updated;
             }
             return prev;
@@ -256,6 +273,14 @@ function App() {
         // Keep researching for synthesis
         break
 
+      case 'plan_created':
+        // Planner Agent generated a new task plan
+        setPendingPlan(data.plan)
+        showToast('📋 New task plan created! Review in Tasks tab', '📋')
+        // Switch to tasks tab to show the plan
+        setMainTab('tasks')
+        break
+
       case 'agent_done':
       case 'complete':
         setIsTyping(false)
@@ -275,11 +300,22 @@ function App() {
 
       case 'error':
         setIsTyping(false)
+        if (data.isTimeout) {
+          // It's a timeout, show the continue prompt logic in AgentChat
+          // We can signal this by passing a special flag or just letting the user see the error + Retry button
+          // But AgentChat handles 'showContinuePrompt' internally via props or local state.
+          // Since showContinuePrompt is local to AgentChat, we might need to expose it or just let the error message represent the state.
+          // Actually, AgentChat has no prop to force showContinuePrompt from App.jsx, it has onStop/onSendMessage.
+          // Let's just treat it as a stopped state so the user can hit continue.
+          setIsStopped(true)
+        }
+
         setMessages(prev => [...prev, {
           id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           agent: data.agent,
-          content: `❌ Error: ${data.content}`,
+          content: data.isTimeout ? `Construction Timed Out: ${data.content}` : `❌ Error: ${data.content}`,
           isError: true,
+          isTimeout: data.isTimeout, // Pass this through
           timestamp: new Date(),
           complete: true
         }])
@@ -399,6 +435,24 @@ function App() {
       console.error('Failed to fetch usage:', err)
     }
   }
+
+  // Fetch pending plan for Tasks tab notification
+  const fetchPlan = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/plan/current`)
+      const data = await res.json()
+      setPendingPlan(data.plan)
+    } catch (err) {
+      // Plan endpoint may not exist yet
+    }
+  }
+
+  // Poll for plan updates
+  useEffect(() => {
+    fetchPlan()
+    const interval = setInterval(fetchPlan, 5000)
+    return () => clearInterval(interval)
+  }, [])
 
   const uploadFiles = async (fileList, resetWorkspace = false) => {
     console.log('🚀 [App] uploadFiles called. Files:', fileList.length, 'Reset:', resetWorkspace);
@@ -550,7 +604,7 @@ function App() {
     setAttachedFiles(prev => prev.filter(f => f.path !== path))
   }, [])
 
-  const sendChatMessage = useCallback(async (message) => {
+  const sendChatMessage = useCallback(async (message, switchTab = true) => {
     if (!isConnected || !message.trim()) return
 
     // Chat can proceed without a workspace.
@@ -597,11 +651,37 @@ function App() {
         attached_files: attachedFiles
       }
     })
+
+    if (switchTab) {
+      setMainTab('chat')
+    }
+    setAttachedFiles([])
   }, [isConnected, wsSend, fileTree, selectedFile, attachedFiles])
 
   // Clear workspace (UI state only - files remain on disk)
-  const clearWorkspace = async (skipConfirm = false) => {
-    if (!skipConfirm && !confirm('Clear current view? Files will remain saved on disk.')) return
+  const clearWorkspace = async (skipConfirm = false, event = null) => {
+    if (!skipConfirm) {
+      const rect = event?.currentTarget.getBoundingClientRect()
+      setModalConfirm({
+        isOpen: true,
+        title: 'Clear',
+        message: 'Clear view?',
+        confirmText: 'Clear',
+        isDanger: false,
+        onConfirm: () => executeClearWorkspace(),
+        coords: rect ? {
+          top: rect.top - 48,
+          left: rect.right - 180, // Align right edge roughly
+          transform: 'none'
+        } : null
+      })
+      return
+    }
+    executeClearWorkspace()
+  }
+
+  const executeClearWorkspace = async () => {
+    setModalConfirm(prev => ({ ...prev, isOpen: false }))
 
     // DETACH backend so it stops looking at these files
     try {
@@ -723,6 +803,49 @@ function App() {
     } catch (err) {
       console.error('Move failed:', err)
       showToast(`Move failed: ${err.message}`, '❌')
+    }
+  }
+  const deleteItem = (path, event = null) => {
+    const rect = event?.currentTarget.getBoundingClientRect()
+    setModalConfirm({
+      isOpen: true,
+      title: 'Delete',
+      message: 'Delete?',
+      itemPath: path,
+      confirmText: 'Delete',
+      isDanger: true,
+      onConfirm: () => executeDeletion(path),
+      coords: rect ? {
+        top: rect.top - 48,
+        left: rect.right - 220, // Align right edge
+        transform: 'none'
+      } : null
+    })
+  }
+
+  const executeDeletion = async (path) => {
+    setModalConfirm(prev => ({ ...prev, isOpen: false }))
+
+    try {
+      console.log('📤 [App] Sending delete request for:', path)
+      const res = await fetch(`${API_URL}/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+      })
+
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.detail || 'Delete failed')
+      }
+
+      console.log('✅ [App] Delete successful for:', path)
+      fetchFileTree()
+      showToast(`Deleted ${path}`, '🗑️')
+      if (selectedFile?.path === path) setSelectedFile(null)
+    } catch (err) {
+      console.error('❌ [App] Delete failed:', err)
+      showToast(`Delete failed: ${err.message}`, '❌')
     }
   }
 
@@ -876,6 +999,7 @@ function App() {
         onNewChat={handleNewChat}
         activeTab={mainTab}
         onTabChange={setMainTab}
+        hasPendingPlan={pendingPlan && pendingPlan.status === 'pending_approval'}
       />
 
       <div className="workspace-layout">
@@ -904,6 +1028,7 @@ function App() {
               onUploadToPath={uploadToPath}
               onMoveItem={moveItem}
               onRenameItem={renameItem}
+              onDeleteItem={deleteItem}
               onOpenFolder={openFolder}
               workspacePath={workspacePath}
             />
@@ -952,7 +1077,7 @@ function App() {
           </button>
         </div>
 
-        <main className="main-content">
+        <main className="main-content" style={{ minWidth: 0 }}>
           <div className="main-tabs">
             <button
               className={`main-tab-btn chat ${mainTab === 'chat' ? 'active' : ''}`}
@@ -987,6 +1112,20 @@ function App() {
               <div style={{ flex: 1, overflow: 'hidden' }}>
                 <Dashboard />
               </div>
+            ) : mainTab === 'tasks' ? (
+              <div style={{ flex: 1, overflow: 'hidden', padding: '20px' }}>
+                <TaskPanel
+                  onPlanApproved={(plan) => {
+                    setPendingPlan(plan);
+                    setMainTab('chat');
+                    sendChatMessage("The task plan has been approved. Please begin work on the first task. 🚀");
+                  }}
+                  onSendFeedback={(message) => {
+                    // Send message and stay on tasks tab to see the plan update
+                    sendChatMessage(message, false);
+                  }}
+                />
+              </div>
             ) : mainTab === 'chat' ? (
               <AgentChat
                 messages={messages}
@@ -1000,6 +1139,19 @@ function App() {
                 onAttachFiles={attachFiles}
                 onRemoveFile={removeAttachedFile}
                 onShowChanges={() => setRightPanelTab('changes')}
+                onRate={(msg, rating) => {
+                  fetch('http://127.0.0.1:8000/api/rate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      message_id: msg.id,
+                      agent_name: msg.agent,
+                      content: msg.content,
+                      rating: rating,
+                      feedback: null
+                    })
+                  }).catch(err => console.error("Failed to save rating:", err));
+                }}
                 onRunCommand={(cmd) => {
                   // Send command to backend terminal
                   // We need a way to send this to the terminal websocket or a separate endpoint
@@ -1178,6 +1330,17 @@ function App() {
           </div>
         ))}
       </div>
+      <ConfirmationModal
+        isOpen={modalConfirm.isOpen}
+        onClose={() => setModalConfirm(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={modalConfirm.onConfirm}
+        title={modalConfirm.title}
+        message={modalConfirm.message}
+        itemPath={modalConfirm.itemPath}
+        confirmText={modalConfirm.confirmText}
+        isDanger={modalConfirm.isDanger}
+        coords={modalConfirm.coords}
+      />
     </div>
   )
 }

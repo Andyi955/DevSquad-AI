@@ -15,7 +15,8 @@ class SummarizerAgent(BaseAgent):
             emoji="📝",
             provider="deepseek",
             model="deepseek-chat",
-            color="#a855f7"  # Purple
+            color="#a855f7",  # Purple
+            temperature=0.5
         )
     
     def _prompt_name(self) -> str:
