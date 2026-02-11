@@ -1,0 +1,50 @@
+[
+    {
+        "id": "js_todo_api",
+        "language": "javascript",
+        "category": "code_gen",
+        "difficulty": "medium",
+        "weight": 1.5,
+        "prompt": "Create a simple Express.js REST API for a todo list with GET /todos, POST /todos, DELETE /todos/:id endpoints. Use in-memory storage (array). Include input validation. Save it to server.js, install dependencies, and run it to verify with curl.",
+        "expected_behaviors": [
+            "Creates server.js with Express routes",
+            "Implements GET, POST, DELETE endpoints",
+            "Has input validation on POST",
+            "Installs express via npm using [RUN_COMMAND]",
+            "Runs the server using [RUN_COMMAND]",
+            "Tests with curl or similar to verify endpoints"
+        ]
+    },
+    {
+        "id": "js_async_fetch",
+        "language": "javascript",
+        "category": "code_gen",
+        "difficulty": "easy",
+        "weight": 1.0,
+        "prompt": "Write a Node.js script that fetches data from 3 different API endpoints concurrently using Promise.all: (1) https://jsonplaceholder.typicode.com/posts/1, (2) https://jsonplaceholder.typicode.com/users/1, (3) https://jsonplaceholder.typicode.com/comments?postId=1. Log the combined results. Save to fetch_all.js and run it.",
+        "expected_behaviors": [
+            "Uses Promise.all or equivalent for concurrent requests",
+            "Fetches from all 3 endpoints",
+            "Uses fetch or node-fetch",
+            "Creates the file using [CREATE_FILE]",
+            "Runs the script using [RUN_COMMAND]",
+            "Logs combined/structured results"
+        ]
+    },
+    {
+        "id": "js_debug_sort",
+        "language": "javascript",
+        "category": "debugging",
+        "difficulty": "medium",
+        "weight": 1.2,
+        "prompt": "This JavaScript sorting function has bugs. Find and fix them, then run tests:\n\n```javascript\nfunction sortUsers(users) {\n  // Bug 1: mutates original array\n  const sorted = users.sort((a, b) => {\n    // Bug 2: string comparison instead of numeric for age\n    return a.age - b.name;\n  });\n  // Bug 3: should return sorted, returns undefined\n}\n\nconst testUsers = [\n  { name: 'Alice', age: 30 },\n  { name: 'Bob', age: 25 },\n  { name: 'Charlie', age: 35 }\n];\n\nconsole.log(sortUsers(testUsers));\nconsole.log('Original:', testUsers); // Should NOT be modified\n```\n\nFix all 3 bugs and verify with the test case.",
+        "expected_behaviors": [
+            "Fixes mutation by using spread or slice",
+            "Fixes comparison to use a.age - b.age",
+            "Adds return statement",
+            "Creates the fixed file",
+            "Runs and verifies output using [RUN_COMMAND]",
+            "Original array remains unmodified"
+        ]
+    }
+]

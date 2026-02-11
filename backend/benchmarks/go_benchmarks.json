@@ -1,0 +1,50 @@
+[
+    {
+        "id": "go_hello_server",
+        "language": "go",
+        "category": "code_gen",
+        "difficulty": "easy",
+        "weight": 1.0,
+        "prompt": "Write a Go HTTP server that listens on port 8080 with two endpoints: GET / returns 'Hello, World!' and GET /health returns JSON {\"status\": \"ok\"}. Save to main.go, initialize a Go module, build and run it to verify both endpoints work.",
+        "expected_behaviors": [
+            "Creates main.go with net/http handlers",
+            "Implements / and /health endpoints",
+            "/health returns valid JSON",
+            "Initializes Go module with go mod init using [RUN_COMMAND]",
+            "Builds the binary using [RUN_COMMAND]",
+            "Runs and tests the server"
+        ]
+    },
+    {
+        "id": "go_worker_pool",
+        "language": "go",
+        "category": "code_gen",
+        "difficulty": "hard",
+        "weight": 2.0,
+        "prompt": "Create a Go concurrent worker pool that processes 20 jobs using 5 goroutine workers. Each job should simulate work by sleeping 100ms and printing its job ID. Use channels for job distribution and a WaitGroup for synchronization. Save to worker.go, build and run it.",
+        "expected_behaviors": [
+            "Uses goroutines for worker pool",
+            "Uses channels for job distribution",
+            "Uses sync.WaitGroup for synchronization",
+            "Processes all 20 jobs across 5 workers",
+            "Creates the file using [CREATE_FILE]",
+            "Builds and runs using [RUN_COMMAND]"
+        ]
+    },
+    {
+        "id": "go_cli_tool",
+        "language": "go",
+        "category": "code_gen",
+        "difficulty": "medium",
+        "weight": 1.5,
+        "prompt": "Build a Go CLI tool that counts words, lines, and characters in a text file (like a simplified wc command). It should accept a filename as a command-line argument and print the counts. Save to wordcount.go, create a sample text file, build and test it.",
+        "expected_behaviors": [
+            "Reads filename from os.Args",
+            "Counts words, lines, and characters",
+            "Handles file-not-found errors gracefully",
+            "Creates a sample text file for testing",
+            "Builds using [RUN_COMMAND]",
+            "Tests with the sample file using [RUN_COMMAND]"
+        ]
+    }
+]

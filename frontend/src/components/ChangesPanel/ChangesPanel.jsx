@@ -33,7 +33,7 @@ const calculateStats = (oldText, newText) => {
 };
 
 function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFullScreen, onToggleFullScreen, approvedChanges }) {
-    const [collapsed, setCollapsed] = useState({});
+    const [expanded, setExpanded] = useState({});
 
 
     // Handle Escape key to close full screen
@@ -47,8 +47,8 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isFullScreen, onToggleFullScreen]);
 
-    const toggleCollapse = (id) => {
-        setCollapsed(prev => ({ ...prev, [id]: !prev[id] }));
+    const toggleExpand = (id) => {
+        setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
     };
 
     // Detect language from file extension
@@ -84,231 +84,83 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
 
     const renderChangeCard = (change, isApproved = false) => {
         const changeId = change.id || change.change_id;
-        const language = getLanguage(change.path);
         const agentColor = change.agent === 'Senior Dev' ? '#818cf8' :
             change.agent === 'Junior Dev' ? '#34d399' :
                 change.agent === 'Unit Tester' ? '#f59e0b' : '#94a3b8';
 
+        const stats = calculateStats(change.old_content || '', change.new_content || '');
+
         return (
-            <div key={changeId} className="card" style={{
-                border: isApproved ? '1px solid rgba(34, 197, 94, 0.1)' : '1px solid rgba(255,255,255,0.05)',
-                background: isApproved ? 'rgba(34, 197, 94, 0.02)' : 'rgba(255,255,255,0.02)',
-                borderRadius: '8px',
-                overflow: 'hidden',
-                display: 'flex',
-                flexDirection: 'column',
-                transition: 'all 0.2s ease',
-                opacity: isApproved ? 0.7 : 1,
-            }}>
-                <div className="change-header" style={{
-                    padding: '8px 12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    cursor: 'pointer',
-                    gap: '10px'
-                }} onClick={() => toggleCollapse(changeId)}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-                        <div style={{
-                            width: '24px',
-                            height: '24px',
-                            borderRadius: '4px',
-                            background: 'rgba(255,255,255,0.05)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '11px',
-                            flexShrink: 0
-                        }}>
-                            {change.action === 'create' ? '➕' : change.action === 'delete' ? '🗑️' : '✏️'}
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span style={{
-                                    fontWeight: 600,
-                                    fontSize: '13px',
-                                    color: '#eee',
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis'
-                                }}>
-                                    {change.path.split('/').pop()}
-                                </span>
-                                {isApproved && (
-                                    <span style={{
-                                        fontSize: '9px',
-                                        color: '#22c55e',
-                                        background: 'rgba(34, 197, 94, 0.1)',
-                                        padding: '1px 5px',
-                                        borderRadius: '3px',
-                                        fontWeight: '700',
-                                        textTransform: 'uppercase'
-                                    }}>
-                                        Approved
-                                    </span>
-                                )}
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#666' }}>
-                                <span style={{ color: agentColor, fontWeight: 500 }}>{change.agent}</span>
-                                <span>•</span>
-                                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '150px' }}>
-                                    {change.path}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                        <span style={{
-                            fontSize: '10px',
-                            transform: collapsed[changeId] ? 'rotate(-90deg)' : 'none',
-                            transition: 'transform 0.2s',
-                            opacity: 0.5
-                        }}>
-                            ▼
+            <div key={changeId} className={`change-item-inline ${isApproved ? 'approved' : ''}`}>
+                <div className="change-header-compact" onClick={() => toggleExpand(changeId)}>
+                    <div className="change-info-main">
+                        <span className="collapse-toggle">
+                            {expanded[changeId] ? '▼' : '▶'}
                         </span>
+                        <span className="path-text" title={change.path}>
+                            {change.path.split('/').pop()}
+                        </span>
+                        <span className="agent-tag" style={{ color: agentColor }}>
+                            {change.agent}
+                        </span>
+                        {isApproved && <span className="stat-add" style={{ fontSize: '10px', fontWeight: 700 }}>APPROVED</span>}
+                    </div>
+
+                    <div className="mini-stats">
+                        <span className="stat-add">+{stats.added}</span>
+                        <span className="stat-rem">-{stats.removed}</span>
                     </div>
                 </div>
 
-                {!collapsed[changeId] && (
-                    <div className="change-body" style={{ display: 'flex', flexDirection: 'column' }}>
-                        {isFullScreen ? (
-                            <div className="diff-view-container" style={{
-                                maxHeight: isFullScreen ? 'calc(100vh - 140px)' : '400px',
-                                overflow: 'auto',
-                                background: '#1e1e1e',
-                                fontSize: '0.875rem',
-                                minWidth: 0
-                            }}>
-                                <ReactDiffViewer
-                                    oldValue={change.action === 'create' ? '' : (change.old_content || '')}
-                                    newValue={change.action === 'delete' ? '' : (change.new_content || '')}
-                                    splitView={true}
-                                    compareMethod="diffWords"
-                                    useDarkTheme={true}
-                                    showDiffOnly={false}
-                                    hideLineNumbers={false}
-                                    renderContent={highlightSyntax}
-                                    codeFoldMessageRenderer={() => 'Expand unchanged lines'}
-                                    styles={{
-                                        variables: {
-                                            light: {
-                                                diffViewerBackground: '#1e1e1e',
-                                                diffViewerColor: '#e0e0e0',
-                                                addedBackground: 'rgba(34, 197, 94, 0.15)',
-                                                addedColor: '#4ade80',
-                                                removedBackground: 'rgba(239, 68, 68, 0.15)',
-                                                removedColor: '#f87171',
-                                                wordAddedBackground: 'rgba(34, 197, 94, 0.3)',
-                                                wordRemovedBackground: 'rgba(239, 68, 68, 0.3)',
-                                                addedGutterBackground: 'rgba(34, 197, 94, 0.1)',
-                                                removedGutterBackground: 'rgba(239, 68, 68, 0.1)',
-                                                gutterBackground: '#0a0a0f',
-                                                gutterBackgroundDark: '#0a0a0f',
-                                                highlightBackground: 'rgba(147, 51, 234, 0.1)',
-                                                highlightGutterBackground: 'rgba(147, 51, 234, 0.15)',
-                                            },
-                                            dark: {
-                                                diffViewerBackground: '#1e1e1e',
-                                                diffViewerColor: '#e0e0e0',
-                                                addedBackground: 'rgba(34, 197, 94, 0.15)',
-                                                addedColor: '#4ade80',
-                                                removedBackground: 'rgba(239, 68, 68, 0.15)',
-                                                removedColor: '#f87171',
-                                                wordAddedBackground: 'rgba(34, 197, 94, 0.3)',
-                                                wordRemovedBackground: 'rgba(239, 68, 68, 0.3)',
-                                                addedGutterBackground: 'rgba(34, 197, 94, 0.1)',
-                                                removedGutterBackground: 'rgba(239, 68, 68, 0.1)',
-                                                gutterBackground: '#0a0a0f',
-                                                gutterBackgroundDark: '#0a0a0f',
-                                                highlightBackground: 'rgba(147, 51, 234, 0.1)',
-                                                highlightGutterBackground: 'rgba(147, 51, 234, 0.15)',
-                                            }
-                                        },
-                                        diffContainer: {
-                                            width: '100%',
-                                        },
-                                        diffTable: {
-                                            width: '100%',
-                                            tableLayout: 'fixed',
-                                        },
-                                        line: {
-                                            fontSize: '0.75rem',
-                                            fontFamily: 'var(--font-mono)',
-                                            padding: '0 4px',
-                                        },
-                                        gutter: {
-                                            minWidth: '40px',
-                                            padding: '0 8px',
-                                        },
-                                        marker: {
-                                            padding: '0 8px',
-                                        },
-                                        content: {
-                                            width: '100%',
-                                        },
-                                        contentText: {
-                                            fontFamily: 'var(--font-mono)',
-                                            fontSize: isFullScreen ? '0.875rem' : '0.8rem',
-                                            lineHeight: '1.6',
-                                            paddingLeft: '12px',
-                                            textAlign: 'left',
-                                            whiteSpace: 'pre-wrap',
-                                            wordBreak: 'break-all'
+                {expanded[changeId] && (
+                    <div className="change-body-compact">
+                        <div className="diff-view-container" style={{
+                            maxHeight: isFullScreen ? 'calc(100vh - 180px)' : '350px',
+                            borderTop: '1px solid rgba(255,255,255,0.03)'
+                        }}>
+                            <ReactDiffViewer
+                                oldValue={change.action === 'create' ? '' : (change.old_content || '')}
+                                newValue={change.action === 'delete' ? '' : (change.new_content || '')}
+                                splitView={isFullScreen}
+                                compareMethod="diffWords"
+                                useDarkTheme={true}
+                                showDiffOnly={false}
+                                hideLineNumbers={false}
+                                renderContent={highlightSyntax}
+                                styles={{
+                                    variables: {
+                                        dark: {
+                                            diffViewerBackground: 'transparent',
+                                            addedBackground: 'rgba(34, 197, 94, 0.1)',
+                                            addedColor: '#4ade80',
+                                            removedBackground: 'rgba(239, 68, 68, 0.1)',
+                                            removedColor: '#f87171',
+                                            wordAddedBackground: 'rgba(34, 197, 94, 0.25)',
+                                            wordRemovedBackground: 'rgba(239, 68, 68, 0.25)',
+                                            gutterBackground: '#0a0a0f',
                                         }
-                                    }}
-                                />
-                            </div>
-                        ) : (
-                            <div className="change-stats" style={{
-                                padding: '12px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '24px',
-                                background: 'rgba(0,0,0,0.15)',
-                                borderTop: '1px solid rgba(255,255,255,0.03)'
-                            }}>
-                                {(() => {
-                                    const stats = calculateStats(change.old_content || '', change.new_content || '');
-                                    return (
-                                        <>
-                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '1rem', color: '#22c55e', fontWeight: 'bold' }}>+{stats.added}</span>
-                                                <span style={{ fontSize: '9px', color: '#555', textTransform: 'uppercase' }}>Added</span>
-                                            </div>
-                                            <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.05)' }}></div>
-                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '1rem', color: '#ef4444', fontWeight: 'bold' }}>-{stats.removed}</span>
-                                                <span style={{ fontSize: '9px', color: '#555', textTransform: 'uppercase' }}>Removed</span>
-                                            </div>
-                                        </>
-                                    );
-                                })()}
-                            </div>
-                        )}
+                                    },
+                                    contentText: {
+                                        fontSize: '0.8rem',
+                                        lineHeight: '1.4'
+                                    }
+                                }}
+                            />
+                        </div>
 
                         {!isApproved && (
-                            <div className="change-actions" style={{
-                                display: 'flex',
-                                gap: '8px',
-                                padding: '10px 12px',
-                                borderTop: '1px solid rgba(255,255,255,0.03)',
-                                background: 'rgba(255,255,255,0.01)'
-                            }}>
-                                <button
-                                    className="btn btn-success compact"
-                                    style={{ flex: 1, padding: '8px', fontSize: '12px', fontWeight: '600' }}
-                                    onClick={() => onApprove(changeId)}
-                                >
-                                    Approve
-                                </button>
-                                <button
-                                    className="btn btn-danger compact"
-                                    style={{ flex: 1, padding: '8px', fontSize: '12px', fontWeight: '600', opacity: 0.6 }}
-                                    onClick={() => onReject(changeId)}
-                                >
-                                    Reject
-                                </button>
+                            <div className="change-footer-compact">
+                                <span style={{ fontSize: '10px', color: '#666', fontFamily: 'var(--font-mono)' }}>
+                                    {change.path}
+                                </span>
+                                <div className="mini-actions">
+                                    <button className="btn-mini reject" onClick={(e) => { e.stopPropagation(); onReject(changeId); }}>
+                                        Reject
+                                    </button>
+                                    <button className="btn-mini approve" onClick={(e) => { e.stopPropagation(); onApprove(changeId); }}>
+                                        Approve
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -319,21 +171,10 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
 
     if (pendingChanges.length === 0 && (!approvedChanges || approvedChanges.length === 0)) {
         return (
-            <div className="research-panel" style={{ height: '100%' }}>
-                <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '100%',
-                    color: 'var(--text-muted)',
-                    textAlign: 'center',
-                    padding: '20px'
-                }}>
-                    <div style={{ fontSize: '3rem', marginBottom: '16px' }}>✨</div>
-                    <h3 style={{ margin: '0 0 8px 0', color: 'var(--text-primary)' }}>No Pending Changes</h3>
-                    <p style={{ margin: 0, fontSize: '0.9rem' }}>Agent edits will appear here for your review.</p>
-                </div>
+            <div className="empty-state-compact">
+                <div className="icon">✨</div>
+                <h3>No Pending Changes</h3>
+                <p>Agent edits will appear here for your review.</p>
             </div>
         );
     }

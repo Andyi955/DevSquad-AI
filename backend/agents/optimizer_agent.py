@@ -19,6 +19,7 @@ class OptimizerAgent:
         self.name = "Optimizer"
         self.emoji = "⚡"
         self.model = "gemini-3-flash-preview"
+        self.scoring_history: list = []  # Track scores across optimization iterations
         self.temperature = 0.3
         self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
         self.rating_service = rating_service
@@ -81,13 +82,13 @@ For "replace_line", include "target" (text to find) and "replacement" fields.
     
     async def optimize_agents(self, review_history: List[dict]) -> Dict[str, Any]:
         """
-        Analyze review history and propose/apply optimizations.
+        Analyze review history and propose optimizations (does NOT apply them).
         
         Args:
             review_history: List of review report dicts with scores, critiques, etc.
             
         Returns:
-            Dict with analysis, changes made, and summary
+            Dict with analysis, suggested changes, and summary
         """
         
         if not review_history:
@@ -120,16 +121,8 @@ For "replace_line", include "target" (text to find) and "replacement" fields.
             
             result = json.loads(result_text)
             
-            # Apply the proposed changes
-            applied_changes = []
-            for change in result.get("changes", []):
-                success = await self._apply_change(change)
-                if success:
-                    applied_changes.append(change)
-                    self.changes_history.append(change)
-            
-            result["applied_changes"] = applied_changes
-            result["summary"] = f"Applied {len(applied_changes)}/{len(result.get('changes', []))} proposed changes"
+            # We no longer apply changes here. We return them for approval.
+            result["summary"] = f"Proposed {len(result.get('changes', []))} optimizations based on {len(review_history)} reports"
             
             print(f"⚡ [Optimizer] {result['summary']}")
             return result
@@ -142,13 +135,24 @@ For "replace_line", include "target" (text to find) and "replacement" fields.
             return {"analysis": str(e), "changes": [], "summary": "Optimization failed"}
     
     def _build_optimization_prompt(self, review_history: List[dict]) -> str:
-        """Build the optimization analysis prompt"""
+        """Build the optimization analysis prompt with more context"""
         
         parts = ["## Review History Analysis\n\n"]
         
         # Add User Feedback Lessons if available
         if self.rating_service:
             parts.append(self.rating_service.get_lessons_for_optimizer() + "\n\n")
+
+        # Add scoring history so optimizer can see if previous edits helped or hurt
+        if self.scoring_history:
+            parts.append("## 📈 Optimization Scoring History\n\n")
+            parts.append("Previous iterations and their results (did your last edits help or hurt?):\n")
+            for entry in self.scoring_history[-10:]:
+                direction = "📈" if entry.get("delta", 0) > 0 else "📉" if entry.get("delta", 0) < 0 else "➡️"
+                parts.append(f"- Iteration {entry['iteration']}: score {entry['score']:.1f} "
+                           f"{direction} (delta: {entry.get('delta', 0):+.1f}) "
+                           f"changes: {entry.get('changes_summary', 'none')}\n")
+            parts.append("\n")
 
         # Summarize reviews by agent
         agent_issues = {}
@@ -164,26 +168,26 @@ For "replace_line", include "target" (text to find) and "replacement" fields.
             avg_score = sum(data["scores"]) / len(data["scores"]) if data["scores"] else 0
             parts.append(f"### {agent} (Avg Score: {avg_score:.1f})\n")
             parts.append("Critiques:\n")
-            for critique in data["critiques"][:10]:  # Limit to 10
+            for critique in data["critiques"][:30]:
                 parts.append(f"- {critique}\n")
             parts.append("\n")
         
         # Include current prompt snippets for context
-        parts.append("## Current Prompt Snippets\n\n")
+        parts.append("## Current Prompt Context\n\n")
         for prompt_file in self.prompts_dir.glob("*.md"):
             try:
                 content = prompt_file.read_text(encoding="utf-8")
-                # Just first 500 chars
-                parts.append(f"### {prompt_file.name}\n```\n{content[:500]}...\n```\n\n")
+                parts.append(f"### {prompt_file.name}\n```\n{content[:2000]}...\n```\n\n")
             except:
                 pass
         
-        parts.append("## Your Task\nAnalyze the issues and propose specific changes to fix them. Return JSON.")
+        parts.append("## Your Task\nAnalyze the issues and propose specific changes to fix them. "
+                     "You may use 'full_rewrite' action for major prompt overhauls. Return JSON.")
         
         return "".join(parts)
     
-    async def _apply_change(self, change: dict) -> bool:
-        """Apply a single change to a file"""
+    async def apply_optimization(self, change: dict) -> bool:
+        """Apply a single change to a file (Public method)"""
         
         file_path = change.get("file", "")
         action = change.get("action", "")
@@ -227,6 +231,13 @@ For "replace_line", include "target" (text to find) and "replacement" fields.
                 else:
                     print(f"⚠️ [Optimizer] No temperature found in {file_path}")
                     return False
+            elif action == "full_rewrite":
+                # Complete prompt replacement (used during optimization loops)
+                new_content = change.get("content", "")
+                if not new_content:
+                    print(f"⚠️ [Optimizer] No content for full_rewrite")
+                    return False
+                print(f"📝 [Optimizer] Full rewrite of {file_path}")
             else:
                 print(f"⚠️ [Optimizer] Unknown action: {action}")
                 return False
@@ -234,6 +245,9 @@ For "replace_line", include "target" (text to find) and "replacement" fields.
             # Write the changes
             full_path.write_text(new_content, encoding="utf-8")
             print(f"✅ [Optimizer] Applied {action} to {file_path}: {change.get('reason', 'No reason')}")
+            
+            # Track history after success
+            self.changes_history.append(change)
             return True
             
         except Exception as e:

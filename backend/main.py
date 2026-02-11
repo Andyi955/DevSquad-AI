@@ -26,13 +26,27 @@ from services.file_manager import FileManager
 from services.usage_tracker import UsageTracker
 from services.web_scraper import WebScraper
 from services.rating_service import RatingService
+from services.scoring_engine import ScoringEngine
+from services.benchmark_service import BenchmarkService
+from services.optimization_loop import OptimizationLoop
+
+import logging
 
 # Initialize services
 file_manager = FileManager()
 scraper = WebScraper()
 usage_tracker = UsageTracker()
 rating_service = RatingService()
-orchestrator = AgentOrchestrator(file_manager, scraper, usage_tracker, terminal_manager=terminal_manager, rating_service=rating_service)
+
+# --- Logging Filter ---
+class PollingFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Filter out GET logs for polling endpoints
+        msg = record.getMessage()
+        return not ("/files" in msg or "/api/plan/current" in msg or "/usage" in msg or "/health" in msg or "/ping" in msg)
+
+# Apply filter to uvicorn access logs
+logging.getLogger("uvicorn.access").addFilter(PollingFilter())
 
 # Helper to detect OS
 IS_WINDOWS = sys.platform == 'win32'
@@ -57,6 +71,7 @@ class TerminalManager:
         self.active_tasks = {}
         self.log_buffers = {} # client_id -> string buffer for timeline logs
         self.last_sent_commands = {} # client_id -> deque of recently sent commands to filter echo
+        self.system_silence = set() # client_id -> set of active system silence flags
         
     def _strip_ansi(self, text: str) -> str:
         """Remove ANSI escape sequences from text for clean logging"""
@@ -66,6 +81,9 @@ class TerminalManager:
 
     async def _broadcast_log(self, client_id: str, text: str):
         """Buffer and broadcast clean terminal logs to the timeline"""
+        if client_id in self.system_silence:
+            return
+            
         clean_text = self._strip_ansi(text)
         if not clean_text.strip():
             return
@@ -131,9 +149,27 @@ class TerminalManager:
                 process = PtyProcess.spawn(
                     [shell_cmd],
                     dimensions=(rows, cols),
-                    cwd=os.getcwd()
+                    cwd=os.getcwd(),
+                    env=os.environ.copy()
                 )
                 self.ptys[client_id] = {'type': 'win', 'process': process}
+                
+                # Windows-specific initialization: Set common aliases for agents
+                if IS_WINDOWS:
+                    # Set-Alias needs a moment for the shell to be ready
+                    async def init_shell():
+                        self.system_silence.add(client_id)
+                        await asyncio.sleep(1.0) # Increased sleep for Windows shell stability
+                        self.write_to_pty(client_id, 'Set-Alias -Name python3 -Value python -ErrorAction SilentlyContinue\r\n', is_system=True)
+                        self.write_to_pty(client_id, 'Set-Alias -Name pip3 -Value pip -ErrorAction SilentlyContinue\r\n', is_system=True)
+                        self.write_to_pty(client_id, 'Clear-Host\r\n', is_system=True)
+                        await asyncio.sleep(0.2)
+                        if client_id in self.system_silence:
+                            self.system_silence.remove(client_id)
+                        print(f"✅ [Terminal] Aliases set for {client_id}")
+                    
+                    asyncio.create_task(init_shell())
+
                 print(f"🖥️ Terminal session started for {client_id} (Windows) using {shell_cmd}")
                 return process
             except Exception as e:
@@ -273,6 +309,8 @@ class TerminalManager:
                 del self.log_buffers[client_id]
             if client_id in self.last_sent_commands:
                 del self.last_sent_commands[client_id]
+            if client_id in self.system_silence:
+                self.system_silence.remove(client_id)
             print(f"🖥️ Terminal session closed for {client_id}")
 
     def sync_workspace(self, path):
@@ -281,12 +319,33 @@ class TerminalManager:
         path_str = str(path)
         # Force absolute path normalization for Windows
         normalized_path = os.path.abspath(path_str)
-        cd_cmd = f'cd "{normalized_path}"\n' 
+        cd_cmd = f'cd "{normalized_path}"\r\n' 
         for client_id in self.ptys:
             print(f"🔄 Syncing terminal {client_id} to workspace: {normalized_path}")
+            self.system_silence.add(client_id)
             self.write_to_pty(client_id, cd_cmd, is_system=True)
+            # Remove silence after a short delay to allow echo to pass
+            async def unsilence(cid):
+                await asyncio.sleep(0.5)
+                if cid in self.system_silence:
+                    self.system_silence.remove(cid)
+            asyncio.create_task(unsilence(client_id))
 
 terminal_manager = TerminalManager()
+orchestrator = AgentOrchestrator(file_manager, scraper, usage_tracker, terminal_manager=terminal_manager, rating_service=rating_service)
+
+# Initialize benchmark system
+scoring_engine = ScoringEngine()
+benchmark_service = BenchmarkService(
+    orchestrator=orchestrator,
+    review_service=None,  # Will be set after orchestrator.initialize()
+    scoring_engine=scoring_engine
+)
+optimization_loop = OptimizationLoop(
+    orchestrator=orchestrator,
+    benchmark_service=benchmark_service,
+    scoring_engine=scoring_engine
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -294,11 +353,25 @@ async def lifespan(app: FastAPI):
     print("🚀 Starting Multi-Agent Code Assistant...")
     try:
         await orchestrator.initialize()
+        # Wire review service into benchmark service after init
+        if orchestrator.review_service:
+            benchmark_service.review_service = orchestrator.review_service
     except Exception as e:
         print(f"❌ Initialization error: {e}")
     yield
     # Shutdown
-    print("👋 Shutting down agents...")
+    print("👋 Shutting down agents and terminals...")
+    try:
+        orchestrator.stop()
+        # Gracefully close all terminal sessions
+        client_ids = list(terminal_manager.ptys.keys())
+        for cid in client_ids:
+            try:
+                terminal_manager.close_pty(cid)
+            except:
+                pass
+    except BaseException as e:
+        print(f"⚠️ Shutdown signal received or error: {type(e).__name__}")
     print("👋 Shutdown complete.")
 
 app = FastAPI(
@@ -512,25 +585,48 @@ async def get_usage():
 
 @app.post("/optimize")
 async def optimize_agents():
-    """Trigger agent optimization based on review history"""
-    if not orchestrator.optimizer:
-        return {"status": "error", "message": "Optimizer not available"}
-    
-    # Collect review history
-    review_history = []
-    if orchestrator.review_service and hasattr(orchestrator.review_service, 'review_history'):
-        review_history = orchestrator.review_service.review_history
-    
-    if not review_history:
-        return {"status": "skipped", "message": "No review history to optimize from"}
-    
-    result = await orchestrator.optimizer.optimize_agents(review_history)
-    return {
-        "status": "success",
-        "analysis": result.get("analysis", ""),
-        "changes": result.get("applied_changes", []),
-        "summary": result.get("summary", "")
-    }
+    """Trigger agent optimization analysis based on review history"""
+    try:
+        result = await orchestrator.run_optimization_analysis()
+        
+        if result.get("status") == "skipped":
+            return {"status": "skipped", "message": result.get("message")}
+            
+        return {
+            "status": "success",
+            "analysis": result.get("analysis", ""),
+            "changes": result.get("changes", []),
+            "summary": result.get("summary", "")
+        }
+    except Exception as e:
+        print(f"❌ Error in /optimize: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.post("/optimize/approve")
+async def approve_optimization(data: dict):
+    """Approve and apply a specific optimization"""
+    index = data.get("index")
+    if index is None:
+        raise HTTPException(status_code=400, detail="Index is required")
+        
+    success = await orchestrator.handle_optimization_approval(index)
+    if success:
+        return {"status": "success", "message": "Optimization applied"}
+    else:
+        return {"status": "error", "message": "Failed to apply optimization"}
+
+@app.post("/optimize/reject")
+async def reject_optimization(data: dict):
+    """Reject a specific optimization"""
+    index = data.get("index")
+    if index is None:
+        raise HTTPException(status_code=400, detail="Index is required")
+        
+    success = await orchestrator.handle_optimization_rejection(index)
+    if success:
+        return {"status": "success", "message": "Optimization rejected"}
+    else:
+        return {"status": "error", "message": "Failed to reject optimization"}
 
 @app.get("/supervisor-learnings")
 async def get_supervisor_learnings():
@@ -542,6 +638,43 @@ async def get_supervisor_learnings():
         "learnings": orchestrator.supervisor.learnings,
         "correction_count": orchestrator.supervisor.correction_count
     }
+
+@app.post("/clear-chat")
+async def clear_chat():
+    """Clear chat history and persistent storage"""
+    orchestrator.clear_history()
+    return {"status": "success", "message": "Chat history cleared"}
+
+@app.post("/terminal/reset")
+async def reset_terminal(data: dict):
+    """Force reset/re-initialize a terminal session"""
+    client_id = data.get("client_id")
+    if not client_id:
+        # If no client_id, reset ALL
+        client_ids = list(terminal_manager.ptys.keys())
+        for cid in client_ids:
+            terminal_manager.close_pty(cid)
+        return {"status": "success", "message": "All terminals reset"}
+    
+    if client_id in terminal_manager.ptys:
+        terminal_manager.close_pty(client_id)
+        return {"status": "success", "message": f"Terminal {client_id} reset. Please reconnect."}
+    else:
+        return {"status": "error", "message": "Terminal session not found"}
+
+@app.get("/api/history")
+async def get_chat_sessions():
+    """Return all known chat sessions discovered from logs"""
+    return orchestrator.list_sessions()
+
+@app.post("/api/history/{session_id}/load")
+async def load_chat_session(session_id: str):
+    """Load a specific session's history into the active orchestrator"""
+    success = orchestrator.load_session_by_id(session_id)
+    if success:
+        return {"status": "success", "history": orchestrator.get_history()}
+    else:
+        raise HTTPException(status_code=404, detail="Session not found")
 
 # --- Planner API ---
 
@@ -891,6 +1024,111 @@ async def get_session_details(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return session
+
+# --- Benchmark API ---
+
+class BenchmarkRunRequest(BaseModel):
+    suite: str = "all"
+    auto_mode: bool = True
+
+@app.get("/api/benchmarks/suites")
+async def list_benchmark_suites():
+    """List available benchmark suites"""
+    return benchmark_service.list_suites()
+
+@app.post("/api/benchmarks/run")
+async def run_benchmarks(request: BenchmarkRunRequest):
+    """Start a benchmark run"""
+    try:
+        result = await benchmark_service.run_suite(
+            suite=request.suite,
+            auto_mode=request.auto_mode
+        )
+        return result
+    except Exception as e:
+        print(f"❌ Error in /api/benchmarks/run: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/benchmarks/resume")
+async def resume_benchmarks():
+    """Resume a paused benchmark run (manual mode)"""
+    try:
+        result = await benchmark_service.resume_run()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/benchmarks/status")
+async def get_benchmark_status():
+    """Get status of current benchmark run"""
+    return benchmark_service.get_status()
+
+@app.get("/api/benchmarks/results")
+async def get_benchmark_results(limit: int = 50):
+    """Get all historical benchmark results for charting"""
+    return benchmark_service.get_results(limit=limit)
+
+@app.get("/api/benchmarks/compare")
+async def compare_benchmark_runs(a: str, b: str):
+    """Compare two benchmark runs"""
+    return benchmark_service.compare(a, b)
+
+# ═══════════════════════════════════════════════════════════════════
+# Optimization Loop Endpoints
+# ═══════════════════════════════════════════════════════════════════
+
+@app.post("/api/optimize/loop")
+async def start_optimization_loop(data: dict):
+    """Start an optimization loop — iterates: benchmark → review → optimize prompts"""
+    # Don't start if one is already running
+    status = optimization_loop.get_status()
+    if status.get("active"):
+        return {"status": "error", "message": "An optimization loop is already running"}
+    
+    suite_id = data.get("suite_id", "python_benchmarks")
+    max_iterations = data.get("max_iterations", 5)
+    target_score = data.get("target_score", 85.0)
+    auto_apply = data.get("auto_apply", False)
+    
+    # Run in background task
+    async def run_loop():
+        await optimization_loop.run(
+            suite_id=suite_id,
+            max_iterations=max_iterations,
+            target_score=target_score,
+            auto_apply=auto_apply
+        )
+    asyncio.create_task(run_loop())
+    
+    return {"status": "started", "message": f"Optimization loop started (suite={suite_id}, max={max_iterations}, target={target_score}, auto={auto_apply})"}
+
+@app.get("/api/optimize/loop/status")
+async def get_optimization_loop_status():
+    """Get current optimization loop progress"""
+    return optimization_loop.get_status()
+
+@app.get("/api/optimize/loop/history")
+async def get_optimization_loop_history():
+    """Get all past optimization loop runs"""
+    return optimization_loop.get_history()
+
+@app.post("/api/optimize/loop/approve")
+async def approve_optimization_loop():
+    """Approve pending prompt changes in the current loop iteration"""
+    optimization_loop.approve_iteration()
+    return {"status": "approved"}
+
+@app.post("/api/optimize/loop/reject")
+async def reject_optimization_loop():
+    """Reject pending prompt changes in the current loop iteration"""
+    optimization_loop.reject_iteration()
+    return {"status": "rejected"}
+
+@app.post("/api/optimize/loop/stop")
+async def stop_optimization_loop():
+    """Stop the running optimization loop after current iteration"""
+    optimization_loop.stop()
+    return {"status": "stopping"}
 
 @app.get("/health")
 async def health_check():

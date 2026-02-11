@@ -7,8 +7,8 @@ export default function OptimizerPanel() {
     const [isOptimizing, setIsOptimizing] = useState(false);
     const [optimizationResult, setOptimizationResult] = useState(null);
     const [supervisorLearnings, setSupervisorLearnings] = useState([]);
-    const [changesHistory, setChangesHistory] = useState([]);
-    const [error, setError] = useState(null);
+    const [pendingChanges, setPendingChanges] = useState([]);
+    const [isProcessing, setIsProcessing] = useState(false);
 
     // Fetch supervisor learnings on mount
     useEffect(() => {
@@ -39,7 +39,7 @@ export default function OptimizerPanel() {
 
             if (data.status === 'success') {
                 setOptimizationResult(data);
-                setChangesHistory(prev => [...prev, ...data.changes]);
+                setPendingChanges(data.changes.map((c, i) => ({ ...c, index: i })));
             } else if (data.status === 'skipped') {
                 setError(data.message);
             } else {
@@ -53,6 +53,61 @@ export default function OptimizerPanel() {
         }
     };
 
+    const handleApprove = async (index) => {
+        setIsProcessing(true);
+        try {
+            const res = await fetch(`${API_BASE}/optimize/approve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ index })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                const approved = pendingChanges.find(c => c.index === index);
+                setPendingChanges(prev => prev.filter(c => c.index !== index));
+                setChangesHistory(prev => [...prev, { ...approved, status: 'applied' }]);
+            }
+        } catch (e) {
+            setError('Failed to approve: ' + e.message);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleReject = async (index) => {
+        setIsProcessing(true);
+        try {
+            const res = await fetch(`${API_BASE}/optimize/reject`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ index })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                const rejected = pendingChanges.find(c => c.index === index);
+                setPendingChanges(prev => prev.filter(c => c.index !== index));
+                setChangesHistory(prev => [...prev, { ...rejected, status: 'rejected' }]);
+            }
+        } catch (e) {
+            setError('Failed to reject: ' + e.message);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const [expandedItems, setExpandedItems] = useState(new Set());
+    const [changesHistory, setChangesHistory] = useState([]); // Assuming this was defined somewhere or needed
+    const [error, setError] = useState(null);
+
+    const toggleExpand = (id) => {
+        setExpandedItems(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
     return (
         <div className="optimizer-panel">
             <div className="optimizer-header">
@@ -62,7 +117,7 @@ export default function OptimizerPanel() {
                     onClick={runOptimization}
                     disabled={isOptimizing}
                 >
-                    {isOptimizing ? 'Analyzing...' : 'Run Optimization'}
+                    {isOptimizing ? 'Analyzing...' : 'Run Analysis'}
                 </button>
             </div>
 
@@ -74,29 +129,90 @@ export default function OptimizerPanel() {
 
             {optimizationResult && (
                 <div className="optimization-result">
-                    <h4>Latest Optimization</h4>
+                    <div className="res-header">
+                        <h4>Analysis Result</h4>
+                        <span className="badge">{optimizationResult.summary}</span>
+                    </div>
                     <p className="analysis-text">{optimizationResult.analysis}</p>
-                    <p className="summary-text">{optimizationResult.summary}</p>
+                </div>
+            )}
+
+            {pendingChanges.length > 0 && (
+                <div className="optimizer-section">
+                    <h4>🚀 Proposed Optimizations</h4>
+                    <div className="changes-list">
+                        {pendingChanges.map((change) => {
+                            const isExpanded = expandedItems.has(`pending-${change.index}`);
+                            return (
+                                <div key={change.index} className={`change-item proposed ${isExpanded ? 'expanded' : ''}`}>
+                                    <div className="change-header" onClick={() => toggleExpand(`pending-${change.index}`)}>
+                                        <div className="change-file" title={change.file}>
+                                            <span className="collapse-icon">
+                                                {isExpanded ? '▼' : '▶'}
+                                            </span>
+                                            <span className={`action-badge action-${change.action}`}>
+                                                {change.action?.toUpperCase()}
+                                            </span>
+                                            <span className="file-name-text">{change.file}</span>
+                                        </div>
+                                    </div>
+
+                                    {isExpanded && (
+                                        <>
+                                            <div className="change-reason">{change.reason}</div>
+                                            <div className="change-actions">
+                                                <button
+                                                    className="btn-reject"
+                                                    onClick={(e) => { e.stopPropagation(); handleReject(change.index); }}
+                                                    disabled={isProcessing}
+                                                >
+                                                    Reject
+                                                </button>
+                                                <button
+                                                    className="btn-approve"
+                                                    onClick={(e) => { e.stopPropagation(); handleApprove(change.index); }}
+                                                    disabled={isProcessing}
+                                                >
+                                                    Approve
+                                                </button>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             )}
 
             <div className="optimizer-section">
-                <h4>📋 Changes Made to Codebase</h4>
+                <h4>📋 History</h4>
                 {changesHistory.length === 0 ? (
-                    <p className="empty-state">No changes made yet. Run optimization after agents complete tasks.</p>
+                    <p className="empty-state">No history yet.</p>
                 ) : (
                     <div className="changes-list">
-                        {changesHistory.map((change, idx) => (
-                            <div key={idx} className="change-item">
-                                <div className="change-file">
-                                    <span className={`action-badge action-${change.action}`}>
-                                        {change.action?.toUpperCase()}
-                                    </span>
-                                    {change.file}
+                        {changesHistory.map((change, idx) => {
+                            const isExpanded = expandedItems.has(`history-${idx}`);
+                            return (
+                                <div key={idx} className={`change-item history status-${change.status} ${isExpanded ? 'expanded' : ''}`}>
+                                    <div className="change-header" onClick={() => toggleExpand(`history-${idx}`)}>
+                                        <div className="change-file" title={change.file}>
+                                            <span className="collapse-icon">
+                                                {isExpanded ? '▼' : '▶'}
+                                            </span>
+                                            <span className={`status-icon`}>
+                                                {change.status === 'applied' ? '✅' : '❌'}
+                                            </span>
+                                            <span className="file-name-text">{change.file}</span>
+                                        </div>
+                                    </div>
+
+                                    {isExpanded && (
+                                        <div className="change-reason">{change.reason}</div>
+                                    )}
                                 </div>
-                                <div className="change-reason">{change.reason}</div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </div>

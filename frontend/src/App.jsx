@@ -15,6 +15,8 @@ import './components/ResizeHandles.css' // Layout Resizing
 import Dashboard from './pages/Dashboard'
 import TaskPanel from './components/TaskPanel/TaskPanel'
 import ConfirmationModal from './components/ConfirmationModal/ConfirmationModal'
+import HistoryPanel from './components/HistoryPanel/HistoryPanel'
+import BenchmarkDashboard from './components/BenchmarkDashboard/BenchmarkDashboard'
 
 
 // Hooks
@@ -454,6 +456,28 @@ function App() {
     return () => clearInterval(interval)
   }, [])
 
+  // Load chat history on mount
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/history`)
+        const data = await res.json()
+        if (Array.isArray(data) && data.length > 0) {
+          console.log(`📜 [App] Loaded ${data.length} messages from history`)
+          setMessages(data.map(m => ({
+            ...m,
+            id: `hist-${Math.random().toString(36).substr(2, 9)}`,
+            timestamp: new Date(m.timestamp),
+            complete: true
+          })))
+        }
+      } catch (err) {
+        console.error('Failed to load history:', err)
+      }
+    }
+    loadHistory()
+  }, [])
+
   const uploadFiles = async (fileList, resetWorkspace = false) => {
     console.log('🚀 [App] uploadFiles called. Files:', fileList.length, 'Reset:', resetWorkspace);
 
@@ -890,6 +914,30 @@ function App() {
     }
   }, [showToast])
 
+  const loadSession = async (session) => {
+    try {
+      const res = await fetch(`${API_URL}/api/history/${session.id}/load`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        const mappedMessages = data.history.map(m => ({
+          agent: m.agent,
+          content: m.content,
+          thoughts: m.thoughts,
+          timestamp: m.timestamp,
+          isUser: m.agent === 'User',
+          isTechnical: m.is_technical
+        }));
+        setMessages(mappedMessages);
+        showToast(`Loaded session: ${session.title}`, '📂');
+      }
+    } catch (err) {
+      console.error('Failed to load session:', err);
+      showToast('Failed to load session', '❌');
+    }
+  };
+
   const approveChange = async (changeId, approved, feedback = null) => {
     try {
       const res = await fetch(`${API_URL}/approve`, {
@@ -1105,6 +1153,12 @@ function App() {
               💻 TERMINAL
               {hasTerminalActivity && <span className="pulse-dot active" style={{ backgroundColor: '#ff5555' }}></span>}
             </button>
+            <button
+              className={`main-tab-btn benchmarks ${mainTab === 'benchmarks' ? 'active' : ''}`}
+              onClick={() => setMainTab('benchmarks')}
+            >
+              📊 BENCHMARKS
+            </button>
           </div>
 
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
@@ -1188,6 +1242,8 @@ function App() {
               />
             ) : mainTab === 'timeline' ? (
               <TimelineView timeline={timeline} />
+            ) : mainTab === 'benchmarks' ? (
+              <BenchmarkDashboard />
             ) : (
               // Deep Research View
               (mainTab === 'deep-research') && (
@@ -1278,22 +1334,98 @@ function App() {
               position: 'relative'
             }}
           >
-            <div className="panel-tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', height: '48px', alignItems: 'center', padding: '0 12px', flexShrink: 0 }}>
-              <h3 style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                🛠️ Development Tools
-              </h3>
+            <div className="panel-tabs" style={{
+              display: 'flex',
+              borderBottom: '1px solid var(--border-color)',
+              height: '48px',
+              alignItems: 'stretch',
+              padding: '0',
+              flexShrink: 0
+            }}>
+              <button
+                onClick={() => setRightPanelTab('changes')}
+                style={{
+                  flex: 1,
+                  background: rightPanelTab === 'changes' ? 'rgba(147, 51, 234, 0.05)' : 'transparent',
+                  border: 'none',
+                  borderBottom: rightPanelTab === 'changes' ? '2px solid var(--neon-purple)' : '2px solid transparent',
+                  color: rightPanelTab === 'changes' ? 'var(--text-main)' : 'var(--text-muted)',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                🛠️ CHANGES
+              </button>
+              <button
+                onClick={() => setRightPanelTab('history')}
+                style={{
+                  flex: 1,
+                  background: rightPanelTab === 'history' ? 'rgba(0, 255, 136, 0.05)' : 'transparent',
+                  border: 'none',
+                  borderBottom: rightPanelTab === 'history' ? '2px solid var(--neon-green)' : '2px solid transparent',
+                  color: rightPanelTab === 'history' ? 'var(--text-main)' : 'var(--text-muted)',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                📜 HISTORY
+              </button>
+              <button
+                onClick={() => setRightPanelTab('research')}
+                style={{
+                  flex: 1,
+                  background: rightPanelTab === 'research' ? 'rgba(56, 189, 248, 0.05)' : 'transparent',
+                  border: 'none',
+                  borderBottom: rightPanelTab === 'research' ? '2px solid var(--neon-cyan)' : '2px solid transparent',
+                  color: rightPanelTab === 'research' ? 'var(--text-main)' : 'var(--text-muted)',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                🔎 RESEARCH
+              </button>
             </div>
 
             <div style={{ flex: 1, overflow: 'hidden' }}>
-              <ChangesPanel
-                pendingChanges={pendingChanges}
-                approvedChanges={approvedChanges}
-                onApprove={(id) => approveChange(id, true)}
-                onReject={(id) => approveChange(id, false)}
-                onApproveAll={approveAllChanges}
-                isFullScreen={false}
-                onToggleFullScreen={() => setIsChangesFullScreen(true)}
-              />
+              {rightPanelTab === 'changes' ? (
+                <ChangesPanel
+                  pendingChanges={pendingChanges}
+                  approvedChanges={approvedChanges}
+                  onApprove={(id) => approveChange(id, true)}
+                  onReject={(id) => approveChange(id, false)}
+                  onApproveAll={approveAllChanges}
+                  isFullScreen={false}
+                  onToggleFullScreen={() => setIsChangesFullScreen(true)}
+                />
+              ) : rightPanelTab === 'history' ? (
+                <HistoryPanel onSessionLoad={loadSession} />
+              ) : (
+                <ResearchPanel results={researchResults} onSearch={doResearch} />
+              )}
             </div>
           </aside>
         </div>

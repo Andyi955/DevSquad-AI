@@ -422,7 +422,7 @@ function AgentChat({
                                         // Process children to hide mission tags and style mentions
                                         const processedChildren = React.Children.map(children, (child) => {
                                             if (typeof child === 'string') {
-                                                const cleaned = child.replace(/✅?(\[)?MISSION ACCOMPLISHED(\])?/g, '').trim();
+                                                const cleaned = child.replace(/✅?(\[)?MISSION ACCOMPLISHED(\])?/g, '');
                                                 return cleaned ? renderStyledContent(cleaned) : null;
                                             }
                                             return child;
