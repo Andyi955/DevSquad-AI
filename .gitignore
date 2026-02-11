@@ -27,6 +27,12 @@ build/
 # Logs
 *.log
 npm-debug.log*
+backend/logs/
+backend/reports/
+.research/
+
+# Agent State
+backend/data/
 
 # OS
 .DS_Store
