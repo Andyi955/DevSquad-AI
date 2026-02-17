@@ -33,6 +33,7 @@ class Message:
     agent: str
     content: str
     thoughts: Optional[str] = None
+    signature: Optional[str] = None
     timestamp: datetime = field(default_factory=datetime.now)
     cues: List[str] = field(default_factory=list)
     is_technical: bool = False
@@ -123,6 +124,7 @@ class AgentOrchestrator:
                             agent=m["agent"],
                             content=m["content"],
                             thoughts=m.get("thoughts"),
+                            signature=m.get("signature"),
                             timestamp=datetime.fromisoformat(m["timestamp"]),
                             is_technical=m.get("is_technical", False)
                         )
@@ -187,6 +189,7 @@ class AgentOrchestrator:
                                 agent=m["agent"],
                                 content=m["content"],
                                 thoughts=m.get("thoughts"),
+                                signature=m.get("signature"),
                                 timestamp=datetime.fromisoformat(m["timestamp"]),
                                 is_technical=m.get("is_technical", False)
                             )
@@ -237,6 +240,7 @@ class AgentOrchestrator:
                     "agent": m.agent,
                     "content": m.content,
                     "thoughts": m.thoughts,
+                    "signature": m.signature,
                     "timestamp": m.timestamp.isoformat(),
                     "is_technical": m.is_technical
                 }
@@ -254,21 +258,12 @@ class AgentOrchestrator:
                 "agent": m.agent,
                 "content": m.content,
                 "thoughts": m.thoughts,
+                "signature": m.signature,
                 "timestamp": m.timestamp.isoformat(),
                 "is_technical": m.is_technical
             }
             for m in self.conversation
         ]
-    def clear_history(self):
-        """Reset conversation and clear persistent storage"""
-        self.conversation = []
-        try:
-            if self.history_file.exists():
-                self.history_file.unlink()
-            print("🗑️ [Orchestrator] Chat history cleared and file deleted")
-        except Exception as e:
-            print(f"⚠️ [Orchestrator] Failed to delete history file: {e}")
-
     async def handle_plan_approval(self):
         """Transition from pending plan to active mission"""
         if not self.planner.current_plan:
@@ -692,7 +687,7 @@ class AgentOrchestrator:
         # Build context with conversation history
         full_context = context or {}
         full_context["conversation"] = [
-            {"agent": m.agent, "content": m.content} 
+            {"agent": m.agent, "content": m.content, "signature": m.signature} 
             for m in self.conversation[-10:]
         ]
         
@@ -723,7 +718,8 @@ class AgentOrchestrator:
         message: str, 
         context: dict = None,
         max_turns: int = 5,
-        initial_agent: str = None
+        initial_agent: str = None,
+        benchmark_mode: bool = False
     ) -> AsyncGenerator[Dict, None]:
         """
         Process a message with streaming responses
@@ -749,10 +745,12 @@ class AgentOrchestrator:
                 
                 # 🛡️ GLOBAL FOLDER GUARD FOR MISSIONS
                 # If we are starting a mission and it seems code-related, check for workspace
+                # In benchmark_mode, BenchmarkService guarantees a sandbox workspace exists
                 predicted_agent = self._select_initial_agent(message)
                 coding_agents = ["Junior Dev", "Senior Dev", "Unit Tester", "Reviewer", "Planner", "Architect"]
                 
-                if predicted_agent in coding_agents and not self.file_manager.workspace_path:
+                is_benchmark = bool(benchmark_mode)
+                if predicted_agent in coding_agents and not self.file_manager.workspace_path and not is_benchmark:
                     print(f"🛑 [Orchestrator] Blocked Planning: No workspace selected for {predicted_agent} intent.")
                     yield {
                         "type": "message",
@@ -776,17 +774,27 @@ class AgentOrchestrator:
                              # Yield plan event for frontend
                             yield {
                                 "type": "plan_created",
-                                "plan": plan
+                                "plan": plan,
+                                "auto_approved": benchmark_mode
                             }
                             
-                            print("⏸️ [Orchestrator] Plan updated. Pausing for user approval.")
-                            yield {
-                                "type": "agent_done",
-                                "agent": "Planner",
-                                "message": "I've updated the plan based on your feedback! Please check the **Tasks** tab again. ✅",
-                                "complete": True
-                            }
-                            return
+                            if benchmark_mode:
+                                print("🤖 [Orchestrator] Benchmark mode: auto-approving updated plan.")
+                                await self.handle_plan_approval()
+                                self.planner.approve_plan()
+                                yield {
+                                    "type": "plan_approved",
+                                    "plan": self.planner.current_plan
+                                }
+                            else:
+                                print("⏸️ [Orchestrator] Plan updated. Pausing for user approval.")
+                                yield {
+                                    "type": "agent_done",
+                                    "agent": "Planner",
+                                    "message": "I've updated the plan based on your feedback! Please check the **Tasks** tab again. ✅",
+                                    "complete": True
+                                }
+                                return
                     except Exception as e:
                         print(f"⚠️ [Planner] Plan update failed: {e}")
                 
@@ -811,21 +819,33 @@ class AgentOrchestrator:
                         for task in plan.get("tasks", []):
                             print(f"   - {task.get('description')} (→{task.get('owner', 'JUNIOR')})")
                         
-                        # Yield plan event for frontend
+                        # Yield plan event for frontend (include auto_approved flag for benchmark mode)
                         yield {
                             "type": "plan_created",
-                            "plan": plan
+                            "plan": plan,
+                            "auto_approved": benchmark_mode  # True if benchmark mode, False otherwise
                         }
                         
-                        # PAUSE: Wait for user to approve the plan
-                        print("⏸️ [Orchestrator] Plan generated. Pausing for user approval.")
-                        yield {
-                            "type": "agent_done",
-                            "agent": "Planner",
-                            "message": "I've created a task plan for this project. Please review it in the **Tasks** tab. You can add, remove, or modify tasks before we start! 📋",
-                            "complete": True
-                        }
-                        return
+                        if benchmark_mode:
+                            # Auto-approve plan in benchmark mode — no human in the loop
+                            print("🤖 [Orchestrator] Benchmark mode: auto-approving plan.")
+                            await self.handle_plan_approval()
+                            self.planner.approve_plan()
+                            # Broadcast plan_approved event for frontend sync
+                            yield {
+                                "type": "plan_approved",
+                                "plan": self.planner.current_plan
+                            }
+                        else:
+                            # PAUSE: Wait for user to approve the plan
+                            print("⏸️ [Orchestrator] Plan generated. Pausing for user approval.")
+                            yield {
+                                "type": "agent_done",
+                                "agent": "Planner",
+                                "message": "I've created a task plan for this project. Please review it in the **Tasks** tab. You can add, remove, or modify tasks before we start! 📋",
+                                "complete": True
+                            }
+                            return
                 except Exception as e:
                     print(f"⚠️ [Planner] Planning failed, proceeding without plan: {e}")
             # === END PLANNER INTEGRATION ===
@@ -841,7 +861,11 @@ class AgentOrchestrator:
         # Build context with conversation history
         full_context = context or {}
         full_context["conversation"] = [
-            {"agent": m.agent, "content": m.content} 
+            {
+                "agent": m.agent, 
+                "content": str(m.content) if m.content is not None else "", 
+                "signature": m.signature
+            } 
             for m in self.conversation[-20:]
         ]
         
@@ -884,11 +908,11 @@ class AgentOrchestrator:
             # 🛡️ FOLDER SELECTION GUARD
             # Coding and Planning agents require a workspace for project-based work.
             # Researcher is exempted for general knowledge queries.
+            # In benchmark_mode, BenchmarkService guarantees a sandbox workspace.
             coding_agents = ["Junior Dev", "Senior Dev", "Unit Tester", "Reviewer", "Planner", "Architect"]
             
-            # If we don't have a workspace, and the agent is supposed to work on code/plan, 
-            # we need to check if the message is actually a research request.
-            if current_agent_name in coding_agents and not self.file_manager.workspace_path:
+            is_benchmark = bool(benchmark_mode)
+            if current_agent_name in coding_agents and not self.file_manager.workspace_path and not is_benchmark:
                 print(f"🛑 [Orchestrator] Blocked {current_agent_name}: No workspace selected.")
                 yield {
                     "type": "message",
@@ -919,6 +943,7 @@ class AgentOrchestrator:
             # Collect full response for cue extraction
             full_response = ""
             full_thoughts = ""
+            signature = None
             cues = []
             
             # Stream agent response with timeout protection
@@ -989,6 +1014,8 @@ class AgentOrchestrator:
                             "agent": current_agent_name,
                             "content": event_content or "Unknown error"
                         }
+                    elif event_type == "signature":
+                        signature = event_content
                     elif event_type == "cue":
                         if event_content in ["EDIT_FILE", "CREATE_FILE", "DELETE_FILE"]:
                             last_was_cue = True
@@ -1000,6 +1027,18 @@ class AgentOrchestrator:
                     "agent": current_agent_name,
                     "content": "⚠️ Agent timed out while thinking. You may want to retry or continue.",
                     "isTimeout": True
+                }
+                # Force break loop
+                break
+            except Exception as e:
+                import traceback
+                print(f"❌ [Orchestrator] Agent {current_agent_name} error: {e}")
+                print(f"❌ [Orchestrator] Traceback: {traceback.format_exc()}")
+                yield {
+                    "type": "error", 
+                    "agent": current_agent_name,
+                    "content": f"⚠️ Error during agent execution: {e}",
+                    "isTimeout": False
                 }
                 # Force break loop
                 break
@@ -1258,6 +1297,7 @@ class AgentOrchestrator:
                 agent=current_agent_name, 
                 content=clean_full_response,
                 thoughts=full_thoughts,
+                signature=signature,
                 cues=cues,
                 is_technical=is_technical_action
             )
@@ -1266,7 +1306,8 @@ class AgentOrchestrator:
             # Update context with this response
             full_context["conversation"].append({
                 "agent": current_agent_name,
-                "content": msg.content
+                "content": msg.content,
+                "signature": msg.signature
             })
                 
             # Signal the final concise/cleaned message
@@ -1935,6 +1976,13 @@ class AgentOrchestrator:
         if hasattr(self, 'supervisor') and self.supervisor:
             self.supervisor.clear_session()
         self.correction_attempts = 0
+        # Delete history file
+        try:
+            if self.history_file.exists():
+                self.history_file.unlink()
+            print("🗑️ [Orchestrator] Chat history cleared and file deleted")
+        except Exception as e:
+            print(f"⚠️ [Orchestrator] Failed to delete history file: {e}")
         return {"status": "cleared"}
 
     async def do_research(self, query: str) -> AsyncGenerator[Dict, None]:

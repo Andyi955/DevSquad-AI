@@ -94,6 +94,26 @@
     transform: none;
 }
 
+.bench-btn.danger {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.2));
+    border-color: #ef4444;
+    color: #fca5a5;
+}
+
+.bench-btn.danger:hover {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.4), rgba(220, 38, 38, 0.4));
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.3);
+}
+
+.bench-subtitle {
+    margin: 0;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    opacity: 0.7;
+}
+
 /* ─── Stats Row ─── */
 .bench-stats-row {
     display: grid;
@@ -855,6 +875,27 @@
     font-size: 0.55rem;
     color: var(--text-muted);
     font-weight: 600;
+}
+
+.run-delete-btn {
+    background: transparent;
+    border: none;
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: 2px;
+    opacity: 0.3;
+    transition: opacity 0.2s, transform 0.2s;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.run-delete-btn:hover {
+    opacity: 1;
+    background: rgba(239, 68, 68, 0.1);
+    transform: scale(1.1);
 }
 
 .loop-run-scores {

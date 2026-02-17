@@ -278,9 +278,26 @@ function App() {
       case 'plan_created':
         // Planner Agent generated a new task plan
         setPendingPlan(data.plan)
-        showToast('📋 New task plan created! Review in Tasks tab', '📋')
-        // Switch to tasks tab to show the plan
-        setMainTab('tasks')
+        if (data.auto_approved) {
+          // Benchmark mode: plan is auto-approved, no need to show approval UI
+          showToast('📋 Benchmark: Plan auto-approved and execution started', '🤖')
+          // Don't switch to tasks tab in benchmark mode
+        } else {
+          // Normal app mode: show approval UI
+          showToast('📋 New task plan created! Review in Tasks tab', '📋')
+          // Switch to tasks tab to show the plan for approval
+          setMainTab('tasks')
+        }
+        break
+
+      case 'plan_approved':
+        // Plan was approved (either by user or auto-approved in benchmark mode)
+        setPendingPlan(data.plan)
+        break
+
+      case 'plan_rejected':
+        // Plan was rejected
+        setPendingPlan(null)
         break
 
       case 'agent_done':

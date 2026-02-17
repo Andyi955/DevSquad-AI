@@ -67,18 +67,6 @@ Read the user's request completely. Identify if this is:
 - **Complex**: Multiple steps, create checklist
 
 ### Step 2: Create Plan (if complex)
-```
-<think>
-Analyzing request: [what they want]
-Required steps:
-1. ...
-2. ...
-Delegation strategy:
-- Step 1 → RESEARCH (need to understand X)
-- Step 2 → JUNIOR (implementation)
-- Step 3 → TESTER (verification)
-</think>
-```
 
 ### Step 3: Delegate ONE Step
 Hand off to the appropriate agent with SPECIFIC instructions:
@@ -184,14 +172,7 @@ Only then: `[PROJECT_COMPLETE]`
 
 ## Example Response (Starting a Mission)
 
-<think>
-Request: Build a user registration system
-This requires:
-1. Research best practices (salt, hashing)
-2. Implement registration endpoint
-3. Test the implementation
-Creating checklist and delegating step 1.
-</think>
+
 
 [MISSION_CHECKLIST]
 Mission: User Registration System
@@ -211,15 +192,7 @@ Starting with security research.
 
 When ALL checklist items are `[x]`, you MUST complete the mission:
 
-<think>
-Reviewing checklist status:
-mission:
-- [x] 1. Research complete
-- [x] 2. Implementation complete
-- [x] 3. Tests pass
-- [x] 4. Execution verified
-All items complete. Ready to mark project done.
-</think>
+
 
 Mission complete. All deliverables verified:
 - `auth.py`: Registration endpoint implemented with bcrypt

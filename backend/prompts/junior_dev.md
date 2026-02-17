@@ -81,18 +81,7 @@ Read the task from Senior Dev or another agent. Identify:
 - What constraints exist
 
 ### Step 2: Plan Internally
-```
-<think>
-Task: [What I need to do]
-Files needed:
-- [file1.py] - Needs modification
-- [file2.py] - New file
-Approach:
-1. First I'll...
-2. Then I'll...
-Dependencies: None / [list them]
-</think>
-```
+
 
 ### Step 3: Implement
 Provide the FULL file content after your cue:
@@ -191,21 +180,11 @@ Your task is complete when:
 
 ---
 
-<think>
-Use this block to share your internal reasoning process.
-Always start your response with a thinking block to organize your steps.
-</think>
+
 
 ## Example Response
 
-<think>
-Task: Implement password validation function
-File: utils/validators.py
-Requirements:
-- Min 8 characters
-- At least 1 uppercase, 1 lowercase, 1 digit
-- Return True/False with error message
-</think>
+
 
 I've implemented the password validation function with all required checks.
 

@@ -339,7 +339,8 @@ scoring_engine = ScoringEngine()
 benchmark_service = BenchmarkService(
     orchestrator=orchestrator,
     review_service=None,  # Will be set after orchestrator.initialize()
-    scoring_engine=scoring_engine
+    scoring_engine=scoring_engine,
+    file_manager=file_manager
 )
 optimization_loop = OptimizationLoop(
     orchestrator=orchestrator,
@@ -563,9 +564,9 @@ async def upload_files(files: List[UploadFile] = File(...), path: str = Form("."
 
 @app.post("/clear-chat")
 async def clear_chat():
-    """Clear conversation history"""
+    """Clear conversation history and reset mission state"""
     orchestrator.clear_history()
-    return {"status": "success"}
+    return {"status": "success", "message": "Chat history cleared"}
 
 @app.post("/research")
 async def initiate_research(data: dict):
@@ -638,12 +639,6 @@ async def get_supervisor_learnings():
         "learnings": orchestrator.supervisor.learnings,
         "correction_count": orchestrator.supervisor.correction_count
     }
-
-@app.post("/clear-chat")
-async def clear_chat():
-    """Clear chat history and persistent storage"""
-    orchestrator.clear_history()
-    return {"status": "success", "message": "Chat history cleared"}
 
 @app.post("/terminal/reset")
 async def reset_terminal(data: dict):
@@ -1058,6 +1053,12 @@ async def resume_benchmarks():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/benchmarks/stop")
+async def stop_benchmarks():
+    """Stop a running benchmark suite"""
+    benchmark_service.stop()
+    return {"status": "stopping", "message": "Benchmark suite stop requested"}
+
 @app.get("/api/benchmarks/status")
 async def get_benchmark_status():
     """Get status of current benchmark run"""
@@ -1085,7 +1086,7 @@ async def start_optimization_loop(data: dict):
     if status.get("active"):
         return {"status": "error", "message": "An optimization loop is already running"}
     
-    suite_id = data.get("suite_id", "python_benchmarks")
+    suite_id = data.get("suite_id", "python")
     max_iterations = data.get("max_iterations", 5)
     target_score = data.get("target_score", 85.0)
     auto_apply = data.get("auto_apply", False)
@@ -1111,6 +1112,15 @@ async def get_optimization_loop_status():
 async def get_optimization_loop_history():
     """Get all past optimization loop runs"""
     return optimization_loop.get_history()
+
+@app.delete("/api/optimize/loop/history/{run_id}")
+async def delete_optimization_loop_run(run_id: str):
+    """Delete a past optimization loop run"""
+    success = optimization_loop.delete_run(run_id)
+    if success:
+        return {"status": "success", "message": "Run deleted"}
+    else:
+        raise HTTPException(status_code=404, detail="Run not found")
 
 @app.post("/api/optimize/loop/approve")
 async def approve_optimization_loop():

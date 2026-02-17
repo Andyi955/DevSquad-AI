@@ -199,10 +199,21 @@ export default function BenchmarkDashboard() {
     const [loopStatus, setLoopStatus] = useState({ active: false, status: 'idle' });
     const [loopHistory, setLoopHistory] = useState([]);
     const [showLoopModal, setShowLoopModal] = useState(false);
-    const [loopSuite, setLoopSuite] = useState('python_benchmarks');
+    const [loopSuite, setLoopSuite] = useState('');
     const [loopMaxIter, setLoopMaxIter] = useState(5);
     const [loopTarget, setLoopTarget] = useState(85);
     const [loopAutoApply, setLoopAutoApply] = useState(false);
+    const [isStoppingLoop, setIsStoppingLoop] = useState(false);
+
+    // Set default loop suite once suites are loaded
+    useEffect(() => {
+        if (suites?.suites) {
+            const suiteNames = Object.keys(suites.suites);
+            if (suiteNames.length > 0 && !suiteNames.includes(loopSuite)) {
+                setLoopSuite(suiteNames[0]);
+            }
+        }
+    }, [suites]);
 
     // Fetch all data
     const fetchAll = useCallback(async () => {
@@ -218,6 +229,7 @@ export default function BenchmarkDashboard() {
             setStatus(statusRes);
             setIsRunning(statusRes?.status === 'running' || statusRes?.status === 'paused');
             setLoopStatus(loopRes);
+            if (!loopRes.active) setIsStoppingLoop(false);
             setError(null);
 
             // Fetch loop history less frequently (only on first load or when loop finishes)
@@ -269,6 +281,17 @@ export default function BenchmarkDashboard() {
         }
     };
 
+    // Stop a running suite
+    const stopSuite = async () => {
+        try {
+            await fetch(`${API_BASE}/api/benchmarks/stop`, { method: 'POST' });
+            setIsRunning(false);
+            fetchAll();
+        } catch (err) {
+            console.error('[Benchmark] Stop error:', err);
+        }
+    };
+
     // Optimization loop controls
     const startLoop = async () => {
         try {
@@ -300,8 +323,24 @@ export default function BenchmarkDashboard() {
     };
 
     const stopLoop = async () => {
-        await fetch(`${API_BASE}/api/optimize/loop/stop`, { method: 'POST' });
-        fetchAll();
+        try {
+            setIsStoppingLoop(true);
+            await fetch(`${API_BASE}/api/optimize/loop/stop`, { method: 'POST' });
+            fetchAll();
+        } catch (err) {
+            console.error('[OptLoop] Stop error:', err);
+            setIsStoppingLoop(false);
+        }
+    };
+
+    const deleteLoopRun = async (runId) => {
+        if (!confirm('Are you sure you want to delete this optimization run?')) return;
+        try {
+            await fetch(`${API_BASE}/api/optimize/loop/history/${runId}`, { method: 'DELETE' });
+            setLoopHistory(prev => prev.filter(r => r.run_id !== runId));
+        } catch (err) {
+            console.error('[OptLoop] Delete error:', err);
+        }
     };
 
     // ─── Derived Data ───
@@ -352,12 +391,18 @@ export default function BenchmarkDashboard() {
             <div className="bench-header">
                 <div className="bench-title">
                     <span className="bench-icon">📊</span>
-                    <h2>Agent Benchmarks</h2>
+                    <div>
+                        <h2>Agent Benchmarks</h2>
+                        <p className="bench-subtitle">Run once to evaluate agent performance</p>
+                    </div>
                 </div>
                 <div className="bench-actions">
                     <button className="bench-btn" onClick={fetchAll}>🔄 Refresh</button>
                     {status?.status === 'paused' && (
                         <button className="bench-btn primary" onClick={resumeRun}>▶️ Resume</button>
+                    )}
+                    {isRunning && (
+                        <button className="bench-btn danger" onClick={stopSuite}>⏹ Stop Suite</button>
                     )}
                     <button
                         className="bench-btn primary"
@@ -443,7 +488,9 @@ export default function BenchmarkDashboard() {
                                 <div className="agent-card-header">
                                     <span className="agent-name">{agent}</span>
                                     <span className={`trend-badge ${data.trend}`}>
-                                        {data.trend === 'improving' ? '↗' : data.trend === 'degrading' ? '↘' : '→'} {data.trend}
+                                        {data.trend === 'improving' ? '↗ Improving' :
+                                            data.trend === 'degrading' ? '↘ Degrading' :
+                                                data.trend === 'insufficient_data' ? '⏳ New' : '→ Stable'}
                                     </span>
                                 </div>
                                 <div className="agent-score">{data.avg_score?.toFixed(1) || '—'}</div>
@@ -480,64 +527,77 @@ export default function BenchmarkDashboard() {
             </div>
 
             {/* Run History Table */}
-            {history.length > 0 && (
-                <div className="bench-history-section">
-                    <h3>🕓 Run History</h3>
-                    <table className="history-table">
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>Benchmark</th>
-                                <th>Category</th>
-                                <th>Difficulty</th>
-                                <th>Score</th>
-                                <th>Weighted</th>
-                                <th>Time</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {[...history].reverse().slice(0, 20).map((run, i) => (
-                                <tr key={run.run_id || i}>
-                                    <td style={{ color: 'var(--text-muted)' }}>{history.length - i}</td>
-                                    <td>{run.benchmark_id || '—'}</td>
-                                    <td>{run.category || '—'}</td>
-                                    <td>{run.difficulty || '—'}</td>
-                                    <td>
-                                        <span className={`score-pill ${getScoreClass(run.overall_raw_score)}`}>
-                                            {run.overall_raw_score?.toFixed(1) || '—'}
-                                        </span>
-                                    </td>
-                                    <td>{run.overall_weighted_score?.toFixed(1) || '—'}</td>
-                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.6rem' }}>
-                                        {run.timestamp ? new Date(run.timestamp).toLocaleString() : '—'}
-                                    </td>
+            {
+                history.length > 0 && (
+                    <div className="bench-history-section">
+                        <h3>🕓 Run History</h3>
+                        <table className="history-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Benchmark</th>
+                                    <th>Category</th>
+                                    <th>Difficulty</th>
+                                    <th>Score</th>
+                                    <th>Weighted</th>
+                                    <th>Time</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
+                            </thead>
+                            <tbody>
+                                {[...history].reverse().slice(0, 20).map((run, i) => (
+                                    <tr key={run.run_id || i}>
+                                        <td style={{ color: 'var(--text-muted)' }}>{history.length - i}</td>
+                                        <td>{run.benchmark_id || '—'}</td>
+                                        <td>{run.category || '—'}</td>
+                                        <td>{run.difficulty || '—'}</td>
+                                        <td>
+                                            <span className={`score-pill ${getScoreClass(run.overall_raw_score)}`}>
+                                                {run.overall_raw_score?.toFixed(1) || '—'}
+                                            </span>
+                                        </td>
+                                        <td>{run.overall_weighted_score?.toFixed(1) || '—'}</td>
+                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.6rem' }}>
+                                            {run.timestamp ? new Date(run.timestamp).toLocaleString() : '—'}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )
+            }
 
             {/* Empty state */}
-            {history.length === 0 && Object.keys(agentSummary).length === 0 && (
-                <div className="bench-empty">
-                    <div className="empty-icon">🧪</div>
-                    <div className="empty-text">
-                        No benchmark runs yet. Click <strong>Run Suite</strong> to evaluate your agents across coding challenges.
+            {
+                history.length === 0 && Object.keys(agentSummary).length === 0 && (
+                    <div className="bench-empty">
+                        <div className="empty-icon">🧪</div>
+                        <div className="empty-text">
+                            No benchmark runs yet. Click <strong>Run Suite</strong> to evaluate your agents across coding challenges.
+                        </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* ═══════ Optimization Loop Section ═══════ */}
             <div className="bench-opt-section">
                 <div className="bench-header" style={{ borderBottom: 'none', paddingBottom: 0 }}>
                     <div className="bench-title">
                         <span className="bench-icon">🔄</span>
-                        <h2>Self-Optimization Loop</h2>
+                        <div>
+                            <h2>Self-Optimization Loop</h2>
+                            <p className="bench-subtitle">Iteratively benchmark → review → optimize prompts → repeat</p>
+                        </div>
                     </div>
                     <div className="bench-actions">
                         {loopStatus.active && (
-                            <button className="bench-btn danger" onClick={stopLoop}>⏹ Stop</button>
+                            <button
+                                className="bench-btn danger"
+                                onClick={stopLoop}
+                                disabled={isStoppingLoop || loopStatus.stop_requested}
+                            >
+                                {isStoppingLoop || loopStatus.stop_requested ? '⏳ Stopping...' : '⏹ Stop'}
+                            </button>
                         )}
                         <button
                             className="bench-btn primary"
@@ -608,8 +668,17 @@ export default function BenchmarkDashboard() {
                             {[...loopHistory].reverse().slice(0, 10).map((run, i) => (
                                 <div className="loop-run-card" key={run.run_id || i}>
                                     <div className="loop-run-header">
-                                        <span className={`loop-status-badge ${run.status}`}>{run.status}</span>
-                                        <span className="loop-run-id">#{run.run_id}</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span className={`loop-status-badge ${run.status}`}>{run.status}</span>
+                                            <span className="loop-run-id">#{run.run_id}</span>
+                                        </div>
+                                        <button
+                                            className="run-delete-btn"
+                                            onClick={(e) => { e.stopPropagation(); deleteLoopRun(run.run_id); }}
+                                            title="Delete Run"
+                                        >
+                                            🗑️
+                                        </button>
                                     </div>
                                     <div className="loop-run-scores">
                                         <span>Best: <strong className="score-val">{run.best_score?.toFixed(1)}</strong></span>
@@ -645,100 +714,104 @@ export default function BenchmarkDashboard() {
             </div>
 
             {/* Run Modal */}
-            {showRunModal && (
-                <div className="bench-modal-overlay" onClick={() => setShowRunModal(false)}>
-                    <div className="bench-modal" onClick={e => e.stopPropagation()}>
-                        <h3>🚀 Start Benchmark Run</h3>
+            {
+                showRunModal && (
+                    <div className="bench-modal-overlay" onClick={() => setShowRunModal(false)}>
+                        <div className="bench-modal" onClick={e => e.stopPropagation()}>
+                            <h3>🚀 Start Benchmark Run</h3>
 
-                        <div className="modal-field">
-                            <label>Suite</label>
-                            <select value={selectedSuite} onChange={e => setSelectedSuite(e.target.value)}>
-                                <option value="">Select a suite…</option>
-                                {Object.entries(suitesList).map(([name, suite]) => (
-                                    <option key={name} value={name}>
-                                        {name} ({suite.count} benchmarks)
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
+                            <div className="modal-field">
+                                <label>Suite</label>
+                                <select value={selectedSuite} onChange={e => setSelectedSuite(e.target.value)}>
+                                    <option value="">Select a suite…</option>
+                                    {Object.entries(suitesList).map(([name, suite]) => (
+                                        <option key={name} value={name}>
+                                            {name} ({suite.count} benchmarks)
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
 
-                        <div className="modal-checkbox">
-                            <input
-                                type="checkbox"
-                                id="auto-mode"
-                                checked={autoMode}
-                                onChange={e => setAutoMode(e.target.checked)}
-                            />
-                            <label htmlFor="auto-mode">Auto mode (skip approval gate between benchmarks)</label>
-                        </div>
+                            <div className="modal-checkbox">
+                                <input
+                                    type="checkbox"
+                                    id="auto-mode"
+                                    checked={autoMode}
+                                    onChange={e => setAutoMode(e.target.checked)}
+                                />
+                                <label htmlFor="auto-mode">Auto mode (skip approval gate between benchmarks)</label>
+                            </div>
 
-                        <div className="modal-actions">
-                            <button className="bench-btn" onClick={() => setShowRunModal(false)}>Cancel</button>
-                            <button
-                                className="bench-btn primary"
-                                onClick={startRun}
-                                disabled={!selectedSuite}
-                            >
-                                ▶️ Start
-                            </button>
+                            <div className="modal-actions">
+                                <button className="bench-btn" onClick={() => setShowRunModal(false)}>Cancel</button>
+                                <button
+                                    className="bench-btn primary"
+                                    onClick={startRun}
+                                    disabled={!selectedSuite}
+                                >
+                                    ▶️ Start
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Optimization Loop Modal */}
-            {showLoopModal && (
-                <div className="bench-modal-overlay" onClick={() => setShowLoopModal(false)}>
-                    <div className="bench-modal" onClick={e => e.stopPropagation()}>
-                        <h3>⚡ Start Optimization Loop</h3>
-                        <p style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginBottom: '12px' }}>
-                            Iterates: benchmark → review → optimize prompts → repeat until convergence.
-                        </p>
+            {
+                showLoopModal && (
+                    <div className="bench-modal-overlay" onClick={() => setShowLoopModal(false)}>
+                        <div className="bench-modal" onClick={e => e.stopPropagation()}>
+                            <h3>⚡ Start Optimization Loop</h3>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginBottom: '12px' }}>
+                                Iterates: benchmark → review → optimize prompts → repeat until convergence.
+                            </p>
 
-                        <div className="modal-field">
-                            <label>Suite</label>
-                            <select value={loopSuite} onChange={e => setLoopSuite(e.target.value)}>
-                                {Object.entries(suitesList).map(([name, suite]) => (
-                                    <option key={name} value={name}>{name} ({suite.count} benchmarks)</option>
-                                ))}
-                            </select>
-                        </div>
+                            <div className="modal-field">
+                                <label>Suite</label>
+                                <select value={loopSuite} onChange={e => setLoopSuite(e.target.value)}>
+                                    {Object.entries(suitesList).map(([name, suite]) => (
+                                        <option key={name} value={name}>{name} ({suite.count} benchmarks)</option>
+                                    ))}
+                                </select>
+                            </div>
 
-                        <div className="modal-field">
-                            <label>Max Iterations</label>
-                            <input
-                                type="number" min="1" max="20"
-                                value={loopMaxIter}
-                                onChange={e => setLoopMaxIter(parseInt(e.target.value) || 5)}
-                            />
-                        </div>
+                            <div className="modal-field">
+                                <label>Max Iterations</label>
+                                <input
+                                    type="number" min="1" max="20"
+                                    value={loopMaxIter}
+                                    onChange={e => setLoopMaxIter(parseInt(e.target.value) || 5)}
+                                />
+                            </div>
 
-                        <div className="modal-field">
-                            <label>Target Score</label>
-                            <input
-                                type="number" min="0" max="100" step="5"
-                                value={loopTarget}
-                                onChange={e => setLoopTarget(parseFloat(e.target.value) || 85)}
-                            />
-                        </div>
+                            <div className="modal-field">
+                                <label>Target Score</label>
+                                <input
+                                    type="number" min="0" max="100" step="5"
+                                    value={loopTarget}
+                                    onChange={e => setLoopTarget(parseFloat(e.target.value) || 85)}
+                                />
+                            </div>
 
-                        <div className="modal-checkbox">
-                            <input
-                                type="checkbox"
-                                id="loop-auto"
-                                checked={loopAutoApply}
-                                onChange={e => setLoopAutoApply(e.target.checked)}
-                            />
-                            <label htmlFor="loop-auto">Auto-apply prompt changes (skip approval each iteration)</label>
-                        </div>
+                            <div className="modal-checkbox">
+                                <input
+                                    type="checkbox"
+                                    id="loop-auto"
+                                    checked={loopAutoApply}
+                                    onChange={e => setLoopAutoApply(e.target.checked)}
+                                />
+                                <label htmlFor="loop-auto">Auto-apply prompt changes (skip approval each iteration)</label>
+                            </div>
 
-                        <div className="modal-actions">
-                            <button className="bench-btn" onClick={() => setShowLoopModal(false)}>Cancel</button>
-                            <button className="bench-btn primary" onClick={startLoop}>⚡ Start Loop</button>
+                            <div className="modal-actions">
+                                <button className="bench-btn" onClick={() => setShowLoopModal(false)}>Cancel</button>
+                                <button className="bench-btn primary" onClick={startLoop}>⚡ Start Loop</button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 }

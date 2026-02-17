@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevSquad-AI — System Architecture</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a1a;
+            color: #e0e0e0;
+            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+            padding: 32px;
+        }
+        h1 {
+            text-align: center;
+            font-size: 1.8rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #9333ea, #38bdf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            font-size: 0.85rem;
+            margin-bottom: 32px;
+        }
+        .diagram-section {
+            background: #111128;
+            border: 1px solid rgba(147, 51, 234, 0.2);
+            border-radius: 16px;
+            padding: 32px;
+            margin-bottom: 32px;
+        }
+        .diagram-section h2 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #c4b5fd;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+        }
+        .mermaid svg { max-width: 100%; }
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            justify-content: center;
+            margin-top: 20px;
+            font-size: 0.75rem;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1>DevSquad-AI — System Architecture</h1>
+    <p class="subtitle">Multi-Agent Orchestration with Self-Optimization Pipeline</p>
+
+    <!-- Diagram 1: High-Level System Overview -->
+    <div class="diagram-section">
+        <h2>🏗️ High-Level System Overview</h2>
+        <pre class="mermaid">
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#9333ea', 'primaryTextColor': '#fff', 'primaryBorderColor': '#7c3aed', 'lineColor': '#6366f1', 'secondaryColor': '#1e1b4b', 'tertiaryColor': '#0f172a', 'noteBkgColor': '#1e1b4b', 'noteTextColor': '#c4b5fd'}}}%%
+graph TB
+    subgraph Frontend["🖥️ React Frontend"]
+        UI["App.jsx &lt;br/&gt; Main UI Shell"]
+        Chat["💬 Chat Panel"]
+        Research["🔍 Research Panel"]
+        Timeline["📋 Timeline Panel"]
+        Terminal["💻 Terminal Panel"]
+        Bench["📊 Benchmark Dashboard"]
+        OptUI["🔄 Optimization Loop UI"]
+    end
+
+    subgraph Backend["⚙️ FastAPI Backend"]
+        Main["main.py &lt;br/&gt; API Gateway"]
+        WS["WebSocket &lt;br/&gt; Real-time Events"]
+
+        subgraph Orchestration["🎯 Agent Orchestration Layer"]
+            Orch["AgentOrchestrator &lt;br/&gt; Cue-based Handoffs"]
+            Supervisor["🛡️ Supervisor Agent &lt;br/&gt; Guards &amp; Routes"]
+        end
+
+        subgraph Agents["🤖 Agent Pool"]
+            Planner["📝 Planner"]
+            SeniorDev["👨‍💻 Senior Dev"]
+            JuniorDev["👶 Junior Dev"]
+            Researcher["🔬 Researcher"]
+            ResearchLead["📚 Research Lead"]
+            UnitTester["🧪 Unit Tester"]
+            Summarizer["📄 Summarizer"]
+        end
+
+        subgraph QA["🔍 Quality Assurance"]
+            ReviewAgent["🕵️ Review Agent"]
+            ReviewService["ReviewService &lt;br/&gt; Background Scoring"]
+        end
+
+        subgraph Optimization["⚡ Self-Optimization Pipeline"]
+            OptLoop["OptimizationLoop &lt;br/&gt; Core Engine"]
+            Optimizer["🔧 Optimizer Agent"]
+            PromptVersions["📁 Prompt Versions &lt;br/&gt; Snapshots &amp; Rollback"]
+        end
+
+        subgraph Benchmark["📊 Benchmark System"]
+            BenchService["BenchmarkService &lt;br/&gt; Suite Runner"]
+            ScoringEngine["ScoringEngine &lt;br/&gt; Weighted Scoring"]
+            Suites["📦 Benchmark Suites &lt;br/&gt; Python / JS / Go"]
+        end
+
+        subgraph Services["🔧 Core Services"]
+            FileMgr["FileManager"]
+            Scraper["Web Scraper"]
+            TermMgr["Terminal Manager"]
+            RatingSvc["Rating Service"]
+        end
+
+        Prompts["📄 Agent Prompts &lt;br/&gt; prompts/*.md"]
+    end
+
+    UI --> Chat & Research & Timeline & Terminal & Bench
+    Bench --> OptUI
+    Chat --> WS
+    WS --> Main
+    Main --> Orch
+    Orch --> Supervisor
+    Supervisor --> Agents
+    Agents --> Services
+    Agents --> ReviewAgent
+    ReviewAgent --> ReviewService
+    ReviewService --> ScoringEngine
+
+    OptUI --> Main
+    Main --> OptLoop
+    OptLoop --> BenchService
+    BenchService --> Suites
+    BenchService --> Orch
+    OptLoop --> ReviewService
+    OptLoop --> Optimizer
+    Optimizer --> Prompts
+    Optimizer --> PromptVersions
+    Prompts -.->|loaded by| Agents
+
+    style Frontend fill:#1a1a3e,stroke:#6366f1,stroke-width:2px
+    style Backend fill:#0f0f2e,stroke:#9333ea,stroke-width:2px
+    style Orchestration fill:#1e1040,stroke:#7c3aed
+    style Agents fill:#0f1a30,stroke:#38bdf8
+    style QA fill:#1a0f2e,stroke:#a855f7
+    style Optimization fill:#0f2a1a,stroke:#00ff88,stroke-width:2px
+    style Benchmark fill:#1a1a0f,stroke:#f7b22e
+    style Services fill:#1a1a1a,stroke:#444
+</pre>
+    </div>
+
+    <!-- Diagram 2: Self-Optimization Pipeline Flow -->
+    <div class="diagram-section">
+        <h2>🔄 Self-Optimization Pipeline — Detailed Flow</h2>
+        <pre class="mermaid">
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#00ff88', 'primaryTextColor': '#fff', 'primaryBorderColor': '#00cc6a', 'lineColor': '#9333ea', 'secondaryColor': '#1e1b4b', 'tertiaryColor': '#0f172a'}}}%%
+flowchart TD
+    Start(["🚀 User Clicks 'Start Loop'"])
+    Start --> Config["Configure Loop &lt;br/&gt; Suite • Max Iterations • Target Score • Auto/Manual"]
+
+    Config --> Snapshot["📸 Snapshot Current Prompts &lt;br/&gt; Save to prompts/versions/"]
+
+    Snapshot --> RunBench["🔬 Run Benchmark Suite &lt;br/&gt; BenchmarkService executes tasks"]
+
+    RunBench --> AgentExec["🤖 Agents Execute Tasks &lt;br/&gt; Orchestrator routes to appropriate agents"]
+
+    AgentExec --> Review["🕵️ Review Agent Scores Results &lt;br/&gt; Terminal checks • Code quality • Task completion"]
+
+    Review --> Score["📊 ScoringEngine Calculates Score &lt;br/&gt; Raw score × difficulty weight"]
+
+    Score --> Check{"Score ≥ Target?"}
+
+    Check -->|"✅ Yes"| Converged["🎉 Converged! &lt;br/&gt; Keep best prompt version"]
+
+    Check -->|"❌ No"| Delta{"Score delta &lt; 2 &lt;br/&gt; for 2 iterations?"}
+
+    Delta -->|"Yes — Plateau"| Plateau["⏸ No Improvement &lt;br/&gt; Restore best version"]
+
+    Delta -->|"No — Still improving"| MaxCheck{"Hit max &lt;br/&gt; iterations?"}
+
+    MaxCheck -->|"Yes"| MaxHit["⏹ Max Reached &lt;br/&gt; Restore best version"]
+
+    MaxCheck -->|"No"| Optimize["⚡ Optimizer Agent &lt;br/&gt; Analyzes scores + history"]
+
+    Optimize --> Generate["📝 Generate Prompt Changes &lt;br/&gt; append / replace / full_rewrite"]
+
+    Generate --> AutoCheck{"Auto-apply &lt;br/&gt; mode?"}
+
+    AutoCheck -->|"🤖 Auto"| Apply["✅ Apply Changes &lt;br/&gt; Write to prompt files"]
+
+    AutoCheck -->|"👤 Manual"| Approval["⏸ Wait for User Approval &lt;br/&gt; Show proposed changes in Dashboard"]
+
+    Approval -->|"✅ Approved"| Apply
+    Approval -->|"❌ Rejected"| Skip["⏭ Skip Changes &lt;br/&gt; Keep current prompts"]
+
+    Apply --> Snapshot
+    Skip --> RunBench
+
+    Converged --> Report["📈 Final Report &lt;br/&gt; Iterations • Best score • Changes log"]
+    Plateau --> Report
+    MaxHit --> Report
+
+    style Start fill:#9333ea,stroke:#7c3aed,color:#fff
+    style Converged fill:#00cc6a,stroke:#00ff88,color:#000
+    style Plateau fill:#f59e0b,stroke:#d97706,color:#000
+    style MaxHit fill:#6366f1,stroke:#4f46e5,color:#fff
+    style Optimize fill:#00aa55,stroke:#00ff88,color:#fff
+    style Review fill:#a855f7,stroke:#9333ea,color:#fff
+    style Approval fill:#f59e0b,stroke:#d97706,color:#000
+    style Report fill:#1e1b4b,stroke:#9333ea,color:#fff
+</pre>
+    </div>
+
+    <!-- Diagram 3: Agent Interaction & Improvement Cycle -->
+    <div class="diagram-section">
+        <h2>🤖 How Agents Improve Over Time</h2>
+        <pre class="mermaid">
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#38bdf8', 'lineColor': '#9333ea'}}}%%
+sequenceDiagram
+    participant U as 👤 User / Dashboard
+    participant OL as 🔄 OptimizationLoop
+    participant BS as 📊 BenchmarkService
+    participant O as 🎯 Orchestrator
+    participant A as 🤖 Agents
+    participant P as 📄 Prompts (*.md)
+    participant R as 🕵️ ReviewAgent
+    participant SE as 📈 ScoringEngine
+    participant OP as ⚡ Optimizer
+    participant PV as 📁 Prompt Versions
+
+    U->>OL: Start Loop (suite, target=85, max=5)
+
+    rect rgb(30, 20, 50)
+        Note over OL,PV: Iteration 1
+        OL->>PV: Snapshot current prompts
+        OL->>BS: Run benchmark suite
+        BS->>O: Execute task "Build REST API"
+        O->>P: Load agent prompts
+        P-->>A: senior_dev.md, planner.md...
+        A->>A: Execute task using prompts
+        A-->>O: Agent output + code
+        O-->>BS: Task result
+        BS->>R: Review agent output
+        R->>R: Check: terminal used? venv? quality?
+        R-->>SE: Score: 62/100
+        SE-->>OL: Raw=62, Weighted=58.9
+    end
+
+    OL->>OL: 62 < 85 target → needs improvement
+    OL->>OP: Optimize (scores=[62], history)
+    OP->>OP: Analyze weaknesses
+    OP-->>OL: Changes: senior_dev.md → add terminal rules
+
+    alt Manual Mode
+        OL-->>U: Show proposed changes
+        U->>OL: ✅ Approve
+    end
+
+    OL->>P: Apply prompt changes
+    OL->>PV: Save version 2
+
+    rect rgb(20, 30, 20)
+        Note over OL,PV: Iteration 2 — With improved prompts
+        OL->>BS: Re-run same benchmark
+        BS->>O: Execute task "Build REST API"
+        O->>P: Load UPDATED prompts
+        P-->>A: Improved senior_dev.md
+        A->>A: Now uses terminal, creates venv
+        A-->>O: Better output
+        O-->>BS: Improved result
+        BS->>R: Review
+        R-->>SE: Score: 78/100
+        SE-->>OL: Raw=78, Weighted=74.1
+    end
+
+    OL->>OP: Optimize (scores=[62,78], history)
+    OP-->>OL: Fine-tune changes
+
+    rect rgb(15, 35, 15)
+        Note over OL,PV: Iteration 3
+        OL->>BS: Re-run benchmark
+        BS->>O: Execute with v3 prompts
+        A-->>O: Excellent output
+        R-->>SE: Score: 87/100
+        SE-->>OL: Raw=87 ≥ 85 target
+    end
+
+    OL->>OL: 🎉 Converged!
+    OL->>PV: Mark v3 as best version
+    OL-->>U: ✅ Done! Score improved 62→87 in 3 iterations
+</pre>
+    </div>
+
+    <!-- Diagram 4: Agent Routing -->
+    <div class="diagram-section">
+        <h2>🎯 Agent Routing & Cue System</h2>
+        <pre class="mermaid">
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#6366f1', 'lineColor': '#9333ea'}}}%%
+flowchart LR
+    User["👤 User Message"] --> Supervisor["🛡️ Supervisor &lt;br/&gt; Intent Classification"]
+
+    Supervisor -->|"coding task"| Planning["📝 Planner &lt;br/&gt; Break down task"]
+
+    Planning -->|"[HANDOFF:SENIOR_DEV]"| Senior["👨‍💻 Senior Dev &lt;br/&gt; Architecture &amp; complex code"]
+    Planning -->|"[HANDOFF:JUNIOR_DEV]"| Junior["👶 Junior Dev &lt;br/&gt; Simple implementations"]
+
+    Senior -->|"[RUN_COMMAND]"| Terminal["💻 Terminal &lt;br/&gt; Execute code, pip install, venv"]
+    Junior -->|"[RUN_COMMAND]"| Terminal
+
+    Senior -->|"[HANDOFF:UNIT_TESTER]"| Tester["🧪 Unit Tester &lt;br/&gt; Write &amp; run tests"]
+    Junior -->|"[HANDOFF:UNIT_TESTER]"| Tester
+
+    Supervisor -->|"research needed"| ResearchLead["📚 Research Lead &lt;br/&gt; Plan research strategy"]
+    ResearchLead -->|"[HANDOFF:RESEARCHER]"| Researcher["🔬 Researcher &lt;br/&gt; Web scraping &amp; analysis"]
+
+    Senior -->|"task complete"| Review["🕵️ Review Agent &lt;br/&gt; Score output quality"]
+    Junior -->|"task complete"| Review
+    Tester -->|"task complete"| Review
+
+    Review -->|"score logged"| Scoring["📊 ScoringEngine"]
+    Review -->|"poor score"| Optimizer["⚡ Optimizer &lt;br/&gt; Edit prompts to fix"]
+
+    Optimizer -->|"edits"| Prompts["📄 Agent Prompts"]
+    Prompts -.->|"next execution"| Senior
+    Prompts -.->|"next execution"| Junior
+    Prompts -.->|"next execution"| Tester
+
+    Senior -->|"[HANDOFF:SUMMARIZER]"| Summarizer["📄 Summarizer &lt;br/&gt; Final report"]
+
+    style Supervisor fill:#6366f1,stroke:#4f46e5,color:#fff
+    style Review fill:#a855f7,stroke:#9333ea,color:#fff
+    style Optimizer fill:#00aa55,stroke:#00ff88,color:#fff
+    style Terminal fill:#1a1a3e,stroke:#38bdf8
+    style Scoring fill:#f59e0b,stroke:#d97706,color:#000
+</pre>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#9333ea"></div> Orchestration</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#38bdf8"></div> Agent Pool</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#00ff88"></div> Optimization Pipeline</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div> Scoring / Benchmarks</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#a855f7"></div> Quality Assurance</div>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            securityLevel: 'loose',
+            flowchart: { curve: 'basis', padding: 15 },
+            sequence: { mirrorActors: false, messageAlign: 'left' }
+        });
+    </script>
+</body>
+</html>

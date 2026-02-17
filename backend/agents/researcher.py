@@ -79,8 +79,5 @@ When presenting research, use this format:
 
 **Recommendation**: [Your suggestion]
 
-<think>
-Use this block to plan your research strategy.
-Note what sources you'll check and why.
-</think>
+
 """

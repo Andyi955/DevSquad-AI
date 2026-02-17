@@ -360,7 +360,16 @@ class ScoringEngine:
                 agent_runs[agent].append(score_data["raw_score"])
         
         summary = {}
+        # Filter out system components and non-worker agents
+        system_keywords = ["system", "orchestrator", "supervisor", "user"]
+        
         for agent, scores in agent_runs.items():
+            agent_lower = agent.lower()
+            # aggressive filtering: if name contains any system keyword, skip it
+            # ensuring we don't accidentally skip valid agents (e.g. Unit Tester has 'test', but not system words)
+            if any(keyword in agent_lower for keyword in system_keywords):
+                continue
+                
             trend_data = self.get_trend(agent_name=agent)
             summary[agent] = {
                 "avg_score": round(statistics.mean(scores), 2) if scores else 0,

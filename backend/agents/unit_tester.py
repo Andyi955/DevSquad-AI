@@ -69,8 +69,5 @@ When suggesting file changes:
 - Keep tests independent
 - Test one thing per test
 
-<think>
-Use this block to enumerate test cases and edge cases you're considering.
-Show your systematic approach to testing.
-</think>
+
 """

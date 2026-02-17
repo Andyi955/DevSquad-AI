@@ -4,6 +4,7 @@ Manages benchmark test suites and orchestrates benchmark runs against agents.
 """
 
 import json
+import shutil
 import uuid
 import asyncio
 from datetime import datetime
@@ -21,17 +22,21 @@ class BenchmarkService:
     - Records scores via the scoring engine
     """
     
-    def __init__(self, orchestrator=None, review_service=None, scoring_engine: ScoringEngine = None):
+    def __init__(self, orchestrator=None, review_service=None, scoring_engine: ScoringEngine = None, file_manager=None):
         self.orchestrator = orchestrator
         self.review_service = review_service
         self.scoring_engine = scoring_engine or ScoringEngine()
+        self.file_manager = file_manager
         
         self.benchmarks_dir = Path(__file__).parent.parent / "benchmarks"
+        self.sandbox_dir = self.benchmarks_dir / "sandbox"
         self.benchmarks: Dict[str, List[Dict]] = {}
         
         # Current run state
         self.current_run: Optional[Dict[str, Any]] = None
         self._lock = asyncio.Lock()
+        self._stop_requested = False
+        self._original_workspace = None
         
         # Load benchmark definitions
         self._load_benchmarks()
@@ -82,14 +87,70 @@ class BenchmarkService:
         }
     
     def get_all_benchmarks(self, suite: str = "all") -> List[Dict]:
-        """Get flat list of all benchmarks, optionally filtered by suite"""
+        """Get all benchmarks in a suite or across all suites"""
+        # Normalize suite name (e.g. "python_benchmarks" -> "python")
+        if suite and suite != "all" and suite.endswith("_benchmarks"):
+            suite = suite.replace("_benchmarks", "")
+            
         if suite == "all":
-            all_benchmarks = []
-            for benchmarks in self.benchmarks.values():
-                all_benchmarks.extend(benchmarks)
-            return all_benchmarks
+            all_b = []
+            for b_list in self.benchmarks.values():
+                all_b.extend(b_list)
+            return all_b
         
         return self.benchmarks.get(suite, [])
+    
+    # ── Sandbox Workspace Management ─────────────────────────────────
+    
+    def _setup_sandbox(self, run_id: str) -> Path:
+        """
+        Create a sandbox workspace for benchmark runs.
+        Agents need a real workspace to create files, use terminal, etc.
+        """
+        sandbox_path = self.sandbox_dir / run_id
+        sandbox_path.mkdir(parents=True, exist_ok=True)
+        
+        # Save current workspace so we can restore it
+        if self.file_manager:
+            self._original_workspace = self.file_manager.workspace_path
+            self.file_manager.set_workspace(sandbox_path)
+            print(f"📦 [BenchmarkService] Sandbox workspace set: {sandbox_path}")
+        
+        return sandbox_path
+    
+    def _teardown_sandbox(self, sandbox_path: Path = None):
+        """
+        Restore original workspace and clean up sandbox.
+        """
+        if self.file_manager:
+            if self._original_workspace:
+                self.file_manager.set_workspace(self._original_workspace)
+                print(f"♻️ [BenchmarkService] Restored workspace: {self._original_workspace}")
+            else:
+                self.file_manager.detach_workspace()
+                print(f"♻️ [BenchmarkService] Detached workspace (no previous workspace)")
+            self._original_workspace = None
+        
+        # Clean up sandbox files (keep the directory structure for debugging)
+        if sandbox_path and sandbox_path.exists():
+            try:
+                shutil.rmtree(sandbox_path, ignore_errors=True)
+                print(f"🧹 [BenchmarkService] Cleaned up sandbox: {sandbox_path}")
+            except Exception as e:
+                print(f"⚠️ [BenchmarkService] Sandbox cleanup failed: {e}")
+    
+    def stop(self):
+        """Stop the current benchmark suite run."""
+        self._stop_requested = True
+        # Also stop the orchestrator if it's mid-turn
+        if self.orchestrator:
+            self.orchestrator.stop()
+        
+        # Update current run status immediately if possible
+        if self.current_run:
+            self.current_run["status"] = "stopped"
+            
+        print("🛑 [BenchmarkService] Stop requested and status updated")
     
     async def run_suite(self, suite: str = "all", auto_mode: bool = False) -> Dict[str, Any]:
         """
@@ -105,9 +166,10 @@ class BenchmarkService:
         """
         run_id = str(uuid.uuid4())[:12]
         benchmarks = self.get_all_benchmarks(suite)
+        self._stop_requested = False
         
         if not benchmarks:
-            return {"error": f"No benchmarks found for suite: {suite}"}
+            return {"status": "error", "message": f"No benchmarks found for suite: {suite}"}
         
         async with self._lock:
             self.current_run = {
@@ -125,40 +187,65 @@ class BenchmarkService:
         
         print(f"🏁 [BenchmarkService] Starting run {run_id}: {len(benchmarks)} benchmarks ({suite}), auto_mode={auto_mode}")
         
-        # Run benchmarks
-        for i, benchmark in enumerate(benchmarks):
-            try:
-                async with self._lock:
-                    self.current_run["current_benchmark"] = benchmark["id"]
-                
-                print(f"🔬 [BenchmarkService] [{i+1}/{len(benchmarks)}] Running: {benchmark['id']}")
-                
-                result = await self._run_single_benchmark(run_id, benchmark)
-                
-                async with self._lock:
-                    self.current_run["results"].append(result)
-                    self.current_run["completed"] = i + 1
-                
-                if not auto_mode and i < len(benchmarks) - 1:
-                    # In manual mode, mark as paused after each benchmark
+        # Setup sandbox workspace so agents can actually use files/terminal
+        sandbox_path = self._setup_sandbox(run_id)
+        
+        try:
+            # Run benchmarks
+            for i, benchmark in enumerate(benchmarks):
+                # Check stop flag
+                if self._stop_requested:
+                    print(f"🛑 [BenchmarkService] Stopped after {i} benchmarks")
                     async with self._lock:
-                        self.current_run["status"] = "paused"
-                    print(f"⏸️ [BenchmarkService] Paused after {benchmark['id']}. Call /api/benchmarks/resume to continue.")
-                    return self.get_status()
+                        self.current_run["status"] = "stopped"
+                    break
+                
+                try:
+                    async with self._lock:
+                        self.current_run["current_benchmark"] = benchmark["id"]
                     
-            except Exception as e:
-                error_msg = f"Benchmark {benchmark['id']} failed: {str(e)}"
-                print(f"❌ [BenchmarkService] {error_msg}")
-                async with self._lock:
-                    self.current_run["errors"].append(error_msg)
-                    self.current_run["completed"] = i + 1
+                    print(f"🔬 [BenchmarkService] [{i+1}/{len(benchmarks)}] Running: {benchmark['id']}")
+                    
+                    # Clear orchestrator state for fresh evaluation
+                    if self.orchestrator:
+                        self.orchestrator.clear_history()
+                    
+                    result = await self._run_single_benchmark(run_id, benchmark)
+                    
+                    if self._stop_requested:
+                        async with self._lock:
+                            self.current_run["status"] = "stopped"
+                        break
+
+                    async with self._lock:
+                        self.current_run["results"].append(result)
+                        self.current_run["completed"] = i + 1
+                    
+                    if not auto_mode and i < len(benchmarks) - 1:
+                        # In manual mode, mark as paused after each benchmark
+                        async with self._lock:
+                            self.current_run["status"] = "paused"
+                        print(f"⏸️ [BenchmarkService] Paused after {benchmark['id']}. Call /api/benchmarks/resume to continue.")
+                        return self.get_status()
+                        
+                except Exception as e:
+                    error_msg = f"Benchmark {benchmark['id']} failed: {str(e)}"
+                    print(f"❌ [BenchmarkService] {error_msg}")
+                    async with self._lock:
+                        self.current_run["errors"].append(error_msg)
+                        self.current_run["completed"] = i + 1
+            
+            # All done (if not stopped)
+            async with self._lock:
+                if self.current_run["status"] != "stopped":
+                    self.current_run["status"] = "completed"
+                self.current_run["finished_at"] = datetime.now().isoformat()
+            
+            print(f"✅ [BenchmarkService] Run {run_id} completed: {len(self.current_run['results'])} scored")
         
-        # All done
-        async with self._lock:
-            self.current_run["status"] = "completed"
-            self.current_run["finished_at"] = datetime.now().isoformat()
-        
-        print(f"✅ [BenchmarkService] Run {run_id} completed: {len(self.current_run['results'])} scored")
+        finally:
+            # Always teardown sandbox, even on error
+            self._teardown_sandbox(sandbox_path)
         
         return self.get_status()
     
@@ -178,37 +265,59 @@ class BenchmarkService:
         all_benchmarks = self.get_all_benchmarks(suite)
         remaining = all_benchmarks[completed:]
         
+        # Re-setup sandbox workspace for resumed run
+        sandbox_path = self._setup_sandbox(run_id)
+        
         async with self._lock:
             self.current_run["status"] = "running"
         
-        for i, benchmark in enumerate(remaining):
-            actual_index = completed + i
-            try:
-                async with self._lock:
-                    self.current_run["current_benchmark"] = benchmark["id"]
-                
-                print(f"🔬 [BenchmarkService] [{actual_index+1}/{len(all_benchmarks)}] Running: {benchmark['id']}")
-                
-                result = await self._run_single_benchmark(run_id, benchmark)
-                
-                async with self._lock:
-                    self.current_run["results"].append(result)
-                    self.current_run["completed"] = actual_index + 1
-                
-                if not auto_mode and i < len(remaining) - 1:
+        try:
+            for i, benchmark in enumerate(remaining):
+                if self._stop_requested:
                     async with self._lock:
-                        self.current_run["status"] = "paused"
-                    return self.get_status()
+                        self.current_run["status"] = "stopped"
+                    break
+                
+                actual_index = completed + i
+                try:
+                    async with self._lock:
+                        self.current_run["current_benchmark"] = benchmark["id"]
                     
-            except Exception as e:
-                error_msg = f"Benchmark {benchmark['id']} failed: {str(e)}"
-                async with self._lock:
-                    self.current_run["errors"].append(error_msg)
-                    self.current_run["completed"] = actual_index + 1
+                    print(f"🔬 [BenchmarkService] [{actual_index+1}/{len(all_benchmarks)}] Running: {benchmark['id']}")
+                    
+                    # Clear orchestrator state for fresh evaluation
+                    if self.orchestrator:
+                        self.orchestrator.clear_history()
+                    
+                    result = await self._run_single_benchmark(run_id, benchmark)
+                    
+                    if self._stop_requested:
+                        async with self._lock:
+                            self.current_run["status"] = "stopped"
+                        break
+
+                    async with self._lock:
+                        self.current_run["results"].append(result)
+                        self.current_run["completed"] = actual_index + 1
+                    
+                    if not auto_mode and i < len(remaining) - 1:
+                        async with self._lock:
+                            self.current_run["status"] = "paused"
+                        return self.get_status()
+                        
+                except Exception as e:
+                    error_msg = f"Benchmark {benchmark['id']} failed: {str(e)}"
+                    async with self._lock:
+                        self.current_run["errors"].append(error_msg)
+                        self.current_run["completed"] = actual_index + 1
+            
+            async with self._lock:
+                if self.current_run["status"] != "stopped":
+                    self.current_run["status"] = "completed"
+                self.current_run["finished_at"] = datetime.now().isoformat()
         
-        async with self._lock:
-            self.current_run["status"] = "completed"
-            self.current_run["finished_at"] = datetime.now().isoformat()
+        finally:
+            self._teardown_sandbox(sandbox_path)
         
         return self.get_status()
     
@@ -216,6 +325,7 @@ class BenchmarkService:
         """
         Run a single benchmark task: send to agents, collect response, score it.
         """
+        import traceback
         benchmark_id = benchmark["id"]
         prompt = benchmark["prompt"]
         
@@ -225,10 +335,11 @@ class BenchmarkService:
         
         if self.orchestrator:
             try:
-                async for chunk in self.orchestrator.process_message_stream(prompt):
+                async for chunk in self.orchestrator.process_message_stream(prompt, benchmark_mode=True):
                     response_chunks.append(chunk)
             except Exception as e:
                 print(f"⚠️ [BenchmarkService] Orchestrator error on {benchmark_id}: {e}")
+                print(f"⚠️ [BenchmarkService] Traceback: {traceback.format_exc()}")
                 # fall through with empty response for scoring
         
         # Now trigger a review of the conversation
@@ -267,6 +378,19 @@ class BenchmarkService:
         if not self.current_run:
             return {"status": "idle", "message": "No benchmark run in progress"}
         
+        # Derive an overall score for this suite run so other services
+        # (like the OptimizationLoop) can treat a suite as a single scalar.
+        # Each entry in `results` is the dict returned by ScoringEngine.record_score.
+        overall_score = 0.0
+        if self.current_run["results"]:
+            raw_scores = [
+                r.get("overall_raw_score", 0) 
+                for r in self.current_run["results"]
+                if isinstance(r, dict)
+            ]
+            if raw_scores:
+                overall_score = round(sum(raw_scores) / len(raw_scores), 2)
+        
         return {
             "run_id": self.current_run["run_id"],
             "suite": self.current_run["suite"],
@@ -281,6 +405,7 @@ class BenchmarkService:
                 "percent": round(self.current_run["completed"] / self.current_run["total"] * 100, 1) if self.current_run["total"] > 0 else 0
             },
             "results_count": len(self.current_run["results"]),
+            "overall_score": overall_score,
             "errors": self.current_run["errors"]
         }
     

@@ -51,17 +51,7 @@ Identify:
 
 ### Step 2: Analyze Code
 ```
-<think>
-Target: auth.py
-Functions to test:
-- login() - 3 test cases
-- register() - 4 test cases  
-- validate_token() - 2 test cases
-Edge cases:
-- Empty inputs
-- SQL injection attempts
-- Expired tokens
-</think>
+
 ```
 
 ### Step 3: Write Tests
@@ -176,22 +166,7 @@ Your testing is complete when:
 
 ## Example Response
 
-<think>
-Target: validators.py validate_password()
-Requirements from docstring:
-- Min 8 chars
-- 1 uppercase
-- 1 lowercase  
-- 1 digit
-Test cases needed:
-1. Valid password - all requirements met
-2. Too short - 7 chars
-3. No uppercase
-4. No lowercase
-5. No digit
-6. Edge: empty string
-7. Edge: all special chars
-</think>
+
 
 Analyzing `validate_password()` function. Creating comprehensive test suite.
 

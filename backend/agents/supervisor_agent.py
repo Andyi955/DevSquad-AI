@@ -93,46 +93,54 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanation, just the JSON ob
         )
         
         try:
+            # Force JSON output if possible with this SDK version
             response = await self.client.aio.models.generate_content(
                 model=self.model,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_prompt,
                     temperature=self.temperature,
-                    max_output_tokens=1024
+                    max_output_tokens=1024,
+                    response_mime_type="application/json"
                 )
             )
             
             result_text = response.text.strip()
             
             # Parse JSON response - handle various formats
-            # Handle potential markdown code blocks
-            if result_text.startswith("```"):
-                result_text = re.sub(r'^```(?:json)?\n?', '', result_text)
-                result_text = re.sub(r'\n?```$', '', result_text)
-            
-            # Try to extract JSON object from the response
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', result_text, re.DOTALL)
-            if json_match:
-                result_text = json_match.group(0)
-            
+            # 1. Try direct parse
             try:
                 result = json.loads(result_text)
             except json.JSONDecodeError:
-                # Fallback: try to fix common issues
-                # Replace unescaped newlines in strings
-                fixed_text = re.sub(r'(?<!\\)\n', ' ', result_text)
-                try:
-                    result = json.loads(fixed_text)
-                except json.JSONDecodeError:
-                    # Final fallback: assume OK
-                    print(f"⚠️ [Supervisor] JSON parse failed, assuming OK")
-                    return {"status": "OK", "issue": None, "correction_message": None, "learning": None}
+                # 2. Handle potential markdown code blocks
+                if "```" in result_text:
+                    result_text = re.sub(r'^```(?:json)?\n?', '', result_text, flags=re.MULTILINE)
+                    result_text = re.sub(r'\n?```$', '', result_text, flags=re.MULTILINE)
+                
+                # 3. Try to extract the first/main JSON object
+                # This regex is more robust for finding the JSON block even with text around it
+                json_match = re.search(r'(\{.*\})', result_text, re.DOTALL)
+                if json_match:
+                    try:
+                        result = json.loads(json_match.group(1))
+                    except json.JSONDecodeError:
+                        # 4. Clean up common issues like unescaped newlines within values
+                        cleaned = re.sub(r'\n', ' ', json_match.group(1))
+                        try:
+                            result = json.loads(cleaned)
+                        except:
+                            raise ValueError("Could not parse JSON even after cleaning")
+                else:
+                    raise ValueError("No JSON object found in response")
             
             # Store learning if present
             if result.get("learning"):
                 self.learnings.append(result["learning"])
                 print(f"📚 [Supervisor] New learning: {result['learning']}")
+            
+            # Ensure required keys exist
+            if "status" not in result:
+                result["status"] = "OK"
             
             # Log analysis result
             status = result.get("status", "OK")
@@ -140,6 +148,7 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanation, just the JSON ob
                 print(f"✅ [Supervisor] {agent_name} turn OK")
             elif status == "NEEDS_CORRECTION":
                 print(f"⚠️ [Supervisor] {agent_name} needs correction: {result.get('issue')}")
+                # Increment locally but Orchestrator also has its own counter
                 self.correction_count += 1
             else:
                 print(f"🚨 [Supervisor] {agent_name} CRITICAL: {result.get('issue')}")

@@ -1,20 +1,20 @@
 """
 Summarizer Agent
-Powered by DeepSeek - Specializes in synthesizing data into reports
+Powered by Gemini - Specializes in synthesizing data into reports
 """
 
 from .base_agent import BaseAgent
 
 
 class SummarizerAgent(BaseAgent):
-    """Summarizer - DeepSeek V3 expert at data synthesis"""
+    """Summarizer - Expert at data synthesis"""
     
     def __init__(self):
         super().__init__(
             name="Summarizer",
             emoji="📝",
-            provider="deepseek",
-            model="deepseek-chat",
+            provider="gemini",
+            model="gemini-3-flash-preview",
             color="#a855f7",  # Purple
             temperature=0.5
         )
@@ -28,7 +28,7 @@ class SummarizerAgent(BaseAgent):
 You are an expert technical writer and data analyst. Your ONLY job is to take raw research data and synthesize it into a professional, high-impact Executive Deep Research Report.
 
 ## Your Model
-You are powered by **DeepSeek V3**, known for reasoning and synthesis capabilities. Use your superior context handling to process large amounts of information.
+You are powered by **Gemini 3.0 Flash**, known for reasoning and synthesis capabilities. Use your superior context handling to process large amounts of information.
 
 ## Your Responsibilities
 1. **Synthesize**: Combine findings from multiple sources into a cohesive narrative.
@@ -62,7 +62,5 @@ You must produce the report in this Markdown format:
 
 [DONE]
 
-<think>
-Plan the structure of your summary. Identify the key themes across the sources.
-</think>
+
 """

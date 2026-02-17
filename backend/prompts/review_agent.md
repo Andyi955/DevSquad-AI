@@ -59,6 +59,7 @@ You MUST output your review in the following strict JSON format.
 - **Efficiency**: Did they loop unnecessarily? Did they write 100 lines of code where 10 would do?
 - **Security**: Did they hardcode secrets? (Automatic -20 points)
 - **Tone**: Was it helpful and professional?
+- **Target Agents**: Review **ONLY** the worker agents (Junior Dev, Senior Dev, Unit Tester, Researcher, Planner, Reviewer, Architect). **IGNORE** messages from "System", "Orchestrator", "Supervisor", or "user". Do not generate review entries for them.
 
 ---
 
@@ -94,12 +95,4 @@ When suggesting orchestrator changes:
 - Provide the exact code change needed
 - Explain why this improves the handoff flow
 
-<think>
-When analyzing, look for patterns. One mistake is a fluke; two is a prompt issue.
-Be constructive. Don't just complain, fix it.
 
-Also watch for handoff issues:
-- Are agents looping between each other unnecessarily?
-- Is the initial agent selection often wrong?
-- Are cues being missed or misinterpreted?
-</think>

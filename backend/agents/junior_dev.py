@@ -16,7 +16,7 @@ class JuniorDevAgent(BaseAgent):
             provider="gemini",
             model="gemini-3-flash-preview",
             color="#22c55e",  # Green
-            temperature=0.2
+            temperature=0.1
         )
     
     def _prompt_name(self) -> str:
@@ -46,8 +46,5 @@ You MUST end every implementation turn with:
 
 ---
 
-<think>
-Use this block to share your internal reasoning process.
-Always start your response with a thinking block.
-</think>
+
 """

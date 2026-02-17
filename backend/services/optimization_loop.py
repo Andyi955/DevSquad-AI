@@ -50,6 +50,7 @@ class OptimizationLoop:
         self._waiting_for_approval = False
         self._approval_event = asyncio.Event()
         self._approved = False
+        self._pending_changes: List[dict] = []
 
     # ── History Persistence ─────────────────────────────────────────
 
@@ -117,7 +118,7 @@ class OptimizationLoop:
 
     async def run(
         self,
-        suite_id: str = "python_benchmarks",
+        suite_id: str = "python",
         max_iterations: int = 5,
         target_score: float = 85.0,
         auto_apply: bool = False
@@ -167,8 +168,18 @@ class OptimizationLoop:
                 logger.info(f"🔄 Iteration {iteration}/{max_iterations} — Running benchmarks...")
                 self.current_run["status"] = f"running_iteration_{iteration}"
 
+                if self._stop_requested:
+                    self.current_run["status"] = "stopped"
+                    break
+
                 bench_result = await self.benchmark_service.run_suite(suite_id, auto_mode=True)
-                if not bench_result or bench_result.get("status") == "error":
+                
+                # Check stop again immediately after benchmark
+                if self._stop_requested:
+                    self.current_run["status"] = "stopped"
+                    break
+
+                if not bench_result or bench_result.get("status") == "error" or "error" in bench_result:
                     logger.error(f"Benchmark run failed at iteration {iteration}")
                     iteration_data = {
                         "iteration": iteration,
@@ -219,6 +230,8 @@ class OptimizationLoop:
                 opt_result = await self.orchestrator.run_optimization_analysis()
                 changes = opt_result.get("changes", [])
                 iteration_data["changes"] = changes
+                # Track changes separately so status endpoint can surface them
+                self._pending_changes = changes
 
                 if not changes:
                     logger.info("No changes proposed by optimizer")
@@ -251,6 +264,8 @@ class OptimizationLoop:
                         break
 
                     self._waiting_for_approval = False
+                    # Clear pending changes once a decision has been made
+                    self._pending_changes = []
 
                     if self._approved:
                         for change in changes:
@@ -316,6 +331,7 @@ class OptimizationLoop:
                 "active": True,
                 "run_id": self.current_run["run_id"],
                 "status": self.current_run["status"],
+                "stop_requested": self._stop_requested,
                 "current_iteration": self.current_run["current_iteration"],
                 "max_iterations": self.current_run["max_iterations"],
                 "target_score": self.current_run["target_score"],
@@ -323,14 +339,22 @@ class OptimizationLoop:
                 "best_score": self.current_run["best_score"],
                 "scores": [it["score"] for it in self.current_run["iterations"]],
                 "waiting_for_approval": self._waiting_for_approval,
-                "pending_changes": (
-                    self.current_run["iterations"][-1]["changes"]
-                    if self._waiting_for_approval and self.current_run["iterations"]
-                    else []
-                )
+                # Expose raw pending changes while we are waiting for approval.
+                # This is populated during the optimizer step before we block.
+                "pending_changes": self._pending_changes if self._waiting_for_approval else []
             }
         return {"active": False, "status": "idle"}
 
     def get_history(self) -> List[Dict]:
         """Get all past optimization runs."""
         return self.run_history
+
+    def delete_run(self, run_id: str) -> bool:
+        """Delete a run from history."""
+        original_len = len(self.run_history)
+        self.run_history = [r for r in self.run_history if r.get("run_id") != run_id]
+        
+        if len(self.run_history) < original_len:
+            self._save_history()
+            return True
+        return False

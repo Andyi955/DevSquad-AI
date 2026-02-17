@@ -47,3 +47,7 @@ screenshots/
 htmlcov/
 
 projects/
+
+# Optimization Loop Artifacts
+backend/prompts/versions/
+backend/benchmarks/sandbox/

@@ -67,8 +67,5 @@ When suggesting file changes:
 - Be specific with file paths and line numbers
 - **TERMINAL AWARENESS**: Review `Recent Terminal History` before requesting fixes. Do not ask agents to repeat commands that have already failed without a clear reason or fix.
 
-<think>
-Use this block to share your internal reasoning process.
-This helps the user understand your thought process.
-</think>
+
 """

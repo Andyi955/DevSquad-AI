@@ -50,14 +50,7 @@ Identify:
 
 ### Step 2: Search Strategy
 ```
-<think>
-Research question: [What they need to know]
-Sources to check:
-1. Official documentation
-2. Stack Overflow for edge cases
-3. GitHub examples
-Focus areas: [specific aspects]
-</think>
+
 ```
 
 ### Step 3: Execute Search
@@ -166,14 +159,7 @@ Your research is complete when:
 
 ## Example Response
 
-<think>
-Research request: Password hashing best practices Python
-Sources to check:
-1. OWASP password storage cheat sheet
-2. Python bcrypt documentation
-3. Recent security articles
-Focus: algorithm choice, salt handling, cost factor
-</think>
+
 
 ### 📚 Research: Password Hashing Best Practices in Python
 

@@ -7,12 +7,13 @@ import os
 import json
 import asyncio
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Optional, Dict, Any
+from typing import AsyncGenerator, Optional, Dict, List, Any
+import base64
 from pathlib import Path
 
 from google import genai
 from google.genai import types
-from openai import AsyncOpenAI
+
 
 
 class BaseAgent(ABC):
@@ -37,7 +38,8 @@ class BaseAgent(ABC):
         provider: str = "gemini",  # "gemini" or "deepseek"
         model: str = None,
         color: str = "#00ff88",
-        temperature: float = 0.5
+        temperature: float = 0.5,
+        thinking_level: str = "HIGH"  # MINIMAL, LOW, MEDIUM, HIGH
     ):
         self.name = name
         self.emoji = emoji
@@ -45,23 +47,16 @@ class BaseAgent(ABC):
         self.color = color
         self.model = model
         self.temperature = temperature
+        self.thinking_level = thinking_level
         self.conversation_history = []
         
-        # Always initialize BOTH clients for Hybrid DeepThink
-        self.gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        self.openai_client = AsyncOpenAI(
-            api_key=os.getenv("DEEPSEEK_API_KEY"),
-            base_url="https://api.deepseek.com"
-        )
+        # Always initialize client
+        self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        self.model = model or "gemini-3-flash-preview"
         
-        if provider == "gemini":
-            self.model = model or "gemini-3-flash-preview"
-            self.client = self.gemini_client
-        elif provider == "deepseek":
-            self.model = model or "deepseek-chat"
-            self.client = self.openai_client
-        else:
-            raise ValueError(f"Unknown provider: {provider}")
+        if provider != "gemini":
+             # Warn but default to Gemini
+             print(f"⚠️ [BaseAgent] Provider '{provider}' not supported. Defaulting to Gemini.")
         
         # Load system prompt
         base_prompt = self._load_prompt()
@@ -110,93 +105,17 @@ class BaseAgent(ABC):
         print(f"📡 [DEBUG] Model: {self.model}, Provider: {self.provider}")
         
         # State for parsing
-        in_thought = False
-        buffer = ""
-        full_message_accumulated = "" # To check for cues at the end
+        full_message_accumulated = ""
         
-        # Get appropriate stream
-        if self.provider == "gemini":
-            stream = self._stream_gemini(full_prompt)
-        elif self.provider == "deepseek":
-            stream = self._stream_deepseek(full_prompt)
-        else:
-            yield {"type": "error", "content": f"Unknown provider: {self.provider}", "agent": self.name}
-            return
+        # Get stream
+        stream = self._stream_gemini(message, context or {})
 
         try:
-            async for chunk in stream:
-                buffer += chunk
-                
-                while True:
-                    if in_thought:
-                        # Look for closing tag
-                        end_tag = "</think>"
-                        if end_tag in buffer:
-                            # Found end of thought
-                            parts = buffer.split(end_tag, 1)
-                            thought_content = parts[0]
-                            remainder = parts[1]
-                            if thought_content:
-                                yield {"type": "thought", "content": thought_content, "agent": self.name}
-                            in_thought = False
-                            buffer = remainder
-                            continue
-                        else:
-                            # stream safe part of thought
-                            safe_len = len(buffer) - len(end_tag) + 1
-                            if safe_len > 0:
-                                chunk_out = buffer[:safe_len]
-                                buffer = buffer[safe_len:]
-                                yield {"type": "thought", "content": chunk_out, "agent": self.name}
-                            break
-                    else:
-                        # Look for opening tag
-                        start_tag = "<think>"
-                        if start_tag in buffer:
-                            # Found start of thought
-                            parts = buffer.split(start_tag, 1)
-                            msg_content = parts[0]
-                            remainder = parts[1]
-                            if msg_content:
-                                full_message_accumulated += msg_content
-                                yield {"type": "message", "content": msg_content, "agent": self.name}
-                            
-                            in_thought = True
-                            buffer = remainder
-                            # Signal thought start
-                            yield {"type": "thought", "content": "", "agent": self.name}
-                            continue
-                        else:
-                            # Check for partial start tag at end of buffer
-                            if '<' in buffer:
-                                last_lt = buffer.rfind('<')
-                                possible_tag = buffer[last_lt:]
-                                if start_tag.startswith(possible_tag):
-                                    to_yield = buffer[:last_lt]
-                                    if to_yield:
-                                        full_message_accumulated += to_yield
-                                        yield {"type": "message", "content": to_yield, "agent": self.name}
-                                    buffer = possible_tag
-                                    break
-                                else:
-                                    full_message_accumulated += buffer
-                                    yield {"type": "message", "content": buffer, "agent": self.name}
-                                    buffer = ""
-                                    break
-                            else:
-                                # No tags, yield all
-                                full_message_accumulated += buffer
-                                yield {"type": "message", "content": buffer, "agent": self.name}
-                                buffer = ""
-                                break
+            async for event in stream:
+                if event["type"] == "message":
+                    full_message_accumulated += event["content"]
+                yield event
             
-            # Flush remaining buffer
-            if buffer:
-                if in_thought:
-                    yield {"type": "thought", "content": buffer, "agent": self.name}
-                else:
-                    full_message_accumulated += buffer
-                    yield {"type": "message", "content": buffer, "agent": self.name}
             
             # Check for cues in the final message
             for cue_name, cue_pattern in self.CUES.items():
@@ -253,149 +172,157 @@ class BaseAgent(ABC):
                 parts.append("## Previous Conversation\n")
                 parts.append("IMPORTANT: You must use this history to maintain context.\n\n")
                 for msg in context["conversation"][-20:]:  # Last 20 messages
-                    parts.append(f"**{msg['agent']}**: {msg['content']}\n\n")
+                    # Ensure content is a string
+                    msg_content = msg.get('content', '')
+                    if not isinstance(msg_content, str):
+                        msg_content = str(msg_content) if msg_content is not None else ""
+                    parts.append(f"**{msg['agent']}**: {msg_content}\n\n")
         
         parts.append(f"## User Request\n{message}")
         
         return "".join(parts)
     
-    async def _stream_gemini(self, prompt: str, retry_count: int = 0) -> AsyncGenerator[str, None]:
-        """Stream response from Gemini using new SDK with async support"""
-        max_retries = 2
-        min_valid_chars = 20  # Lowered threshold
-        chunk_count = 0
-        total_chars = 0
-        last_chunk = None
+    def _build_gemini_contents(self, message: str, context: dict = None) -> list:
+        """Build structured contents for Gemini, including history and signatures"""
         
-        # Minimal logging - removed verbose debug output
+        # 1. System Prompt is handled by system_instruction in config, but we can also prepend context here if needed.
+        # However, to maintain pure history, we should rely on system_instruction for the "Who am I".
+        
+        # 2. Build Context String (Files, etc) - this still goes into the User Message
+        # We use the existing _build_prompt to generate this context block
+        full_message_text = self._build_prompt(message, context)
+        
+        contents = []
+        
+        # 3. Inject History
+        if context and "conversation" in context:
+            for msg in context["conversation"][-20:]:
+                role = "model" if msg["agent"] == self.name else "user"
+                
+                # Ensure content is a string
+                msg_content = msg.get("content", "")
+                if not isinstance(msg_content, str):
+                    msg_content = str(msg_content) if msg_content is not None else ""
+                
+                parts = [{"text": msg_content}]
+                
+                # Restore Thought Signature if present
+                signature = msg.get("signature")
+                if signature and role == "model":
+                    try:
+                        # We stored it as b64 string, Gemini expects bytes in the 'thought_signature' field
+                        # but when using the Dictionary format in the SDK, it might be 'thought_signature'
+                        # or 'thoughtSignature' depending on the exact schema version.
+                        # The latest SDKs and the API wire format use 'thought_signature'.
+                        parts[0]["thought_signature"] = base64.b64decode(signature)
+                    except Exception as e:
+                        print(f"⚠️ [BaseAgent] Failed to decode signature for {self.name}: {e}")
+                
+                contents.append({"role": role, "parts": parts})
+        
+        # 4. Add Current Message
+        contents.append({"role": "user", "parts": [{"text": full_message_text}]})
+        
+        return contents
+
+    async def _stream_gemini(self, message: str, context: dict, retry_count: int = 0) -> AsyncGenerator[Any, None]:
+        """Stream response from Gemini using new SDK with thinking support"""
+        max_retries = 2
+        min_valid_chars = 20
+        total_chars = 0
         
         try:
-            # Gemini 3 Flash works best without explicit thinking_config
-            # The thinking_budget was consuming all tokens, causing MAX_TOKENS errors
+            # Build structured contents
+            contents = self._build_gemini_contents(message, context)
+            
+            # Configure Thinking
+            thinking_config = types.ThinkingConfig(
+                include_thoughts=True,
+                thinking_level=self.thinking_level
+            )
+            
             stream = await self.client.aio.models.generate_content_stream(
                 model=self.model,
-                contents=prompt,
+                contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_prompt,
                     temperature=self.temperature,
-                    max_output_tokens=65536
+                    max_output_tokens=65536,
+                    thinking_config=thinking_config
                 )
             )
             
             async for chunk in stream:
-                chunk_count += 1
-                last_chunk = chunk
-                
-                # Debug logging removed for cleaner output
-                
-                # Capture thoughts if available (Gemini 2.0 Thinking models)
+                # Capture thoughts
                 if hasattr(chunk, 'candidates') and chunk.candidates:
                     for part in chunk.candidates[0].content.parts:
-                        # Native thinking field in some SDK versions
-                        if hasattr(part, 'thought') and part.thought:
-                            thought_text = part.thought
-                            total_chars += len(thought_text)
-                            yield f"<think>{thought_text}</think>"
+                        # 1. Handle Thoughts
+                        if hasattr(part, 'thought') and part.thought:  # SDK 0.1.0+ typically has this
+                             # Ensure thought is converted to string (might be bool or other type)
+                             thought_content = str(part.thought) if not isinstance(part.thought, str) else part.thought
+                             yield {"type": "thought", "content": thought_content, "agent": self.name}
                         
-                # Standard text field
-                if chunk.text:
-                    total_chars += len(chunk.text)
-                    yield chunk.text
+                        # 2. Handle Text
+                        if part.text:
+                            total_chars += len(part.text)
+                            yield {"type": "message", "content": part.text}
+                            
+                        # 3. Handle Thought Signature
+                        # Gemini returns thought_signature as raw bytes. We must encode it
+                        # to safely store it in our JSON history and pass it back.
+                        if hasattr(part, 'thought_signature') and part.thought_signature:
+                            b64_sig = base64.b64encode(part.thought_signature).decode('utf-8')
+                            yield {"type": "signature", "content": b64_sig, "agent": self.name}
+                        elif hasattr(part, 'thoughtSignature') and part.thoughtSignature:
+                            b64_sig = base64.b64encode(part.thoughtSignature).decode('utf-8')
+                            yield {"type": "signature", "content": b64_sig, "agent": self.name}
             
-            # Stream complete - debug info removed
-            
-            # Short response logging removed (was too verbose)
-            
-            # Retry on short/empty responses (including thoughts)
+            # Retry logic...
             if total_chars < min_valid_chars and retry_count < max_retries:
-                print(f"⚠️ [Gemini] {self.name}: Short response ({total_chars} chars), attempt {retry_count + 1}/{max_retries + 1}, retrying after 1s...")
+                print(f"⚠️ [Gemini] {self.name}: Short response ({total_chars} chars), retrying...")
                 await asyncio.sleep(1)
-                async for chunk in self._stream_gemini(prompt, retry_count + 1):
-                    yield chunk
-            elif total_chars < min_valid_chars:
-                print(f"❌ [Gemini] {self.name}: Still short response after {max_retries + 1} attempts!")
-                yield f"\n\n[Agent {self.name} had difficulty generating a response. Attempting to continue...]"
-                
-        except AttributeError:
-            # Fallback if aio is not available or differently structured
-            print("⚠️ Falling back to sync Gemini stream (aio not found)")
-            def get_stream():
-                return self.client.models.generate_content_stream(
-                    model=self.model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=self.system_prompt,
-                        temperature=0.7,
-                        max_output_tokens=65536
-                    )
-                )
-
-            response = await asyncio.to_thread(get_stream)
-            for chunk in response:
-                if chunk.text:
-                    yield chunk.text
+                async for event in self._stream_gemini(message, context, retry_count + 1):
+                    yield event
+                    
         except Exception as e:
+            import traceback
             # Catch 503 Overloaded
             if ("503" in str(e) or "overloaded" in str(e).lower()) and retry_count < max_retries:
-                print(f"🔄 [Gemini] {self.name}: 503 Overloaded, retrying (attempt {retry_count + 1}/{max_retries})...")
-                await asyncio.sleep(2) # Backoff
-                async for chunk in self._stream_gemini(prompt, retry_count + 1):
-                    yield chunk
+                print(f"🔄 [Gemini] {self.name}: 503 Overloaded, retrying...")
+                await asyncio.sleep(2)
+                async for event in self._stream_gemini(message, context, retry_count + 1):
+                    yield event
                 return
                 
             print(f"❌ [Gemini] {self.name} ERROR: {e}")
-            raise
+            print(f"❌ [Gemini] {self.name} Traceback: {traceback.format_exc()}")
+            yield {"type": "error", "content": str(e), "agent": self.name}
     
-    async def _stream_deepseek(self, prompt: str) -> AsyncGenerator[str, None]:
-        """Stream response from DeepSeek"""
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": prompt}
-        ]
-        
-        stream = await self.openai_client.chat.completions.create(
-            model="deepseek-chat",
-            messages=messages,
-            stream=True,
-            temperature=0.7,
-            max_tokens=8192
-        )
-        
-        async for chunk in stream:
-            if hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
-            
-            if hasattr(chunk.choices[0].delta, 'reasoning_content') and chunk.choices[0].delta.reasoning_content:
-                reasoning = chunk.choices[0].delta.reasoning_content
-                yield f"<think>{reasoning}</think>"
+
     
     async def generate(self, message: str, context: dict = None) -> str:
         """Non-streaming generation using mixed SDKs"""
         full_prompt = self._build_prompt(message, context)
         
         if self.provider == "gemini":
+            # For non-streaming, we also need to respect thinking config
+            # But generate() returns just text string, so we lose signature state.
+            # Ideally everything should use stream. But for compatibility:
+            contents = self._build_gemini_contents(message, context)
             response = await asyncio.to_thread(
                 lambda: self.client.models.generate_content(
                     model=self.model,
-                    contents=full_prompt,
+                    contents=contents,
                     config=types.GenerateContentConfig(
                         system_instruction=self.system_prompt,
                         temperature=0.7,
-                        max_output_tokens=65536
+                        max_output_tokens=65536,
+                        thinking_config=types.ThinkingConfig(include_thoughts=True)
                     )
                 )
             )
+            # We can't return the signature here easily without changing return type str
+            # This method should probably be deprecated in favor of think()
             return response.text
             
-        elif self.provider == "deepseek":
-            messages = [
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": full_prompt}
-            ]
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=8192
-            )
-            return response.choices[0].message.content
+

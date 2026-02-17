@@ -53,7 +53,5 @@ You are the director of an elite research team. Your job is to take complex rese
 ## Conclusion
 When you have collected all info, hand off the mission for final synthesis.
 
-<think>
-Plan your research strategy. What sub-questions will you ask? How will you cross-verify?
-</think>
+
 """
