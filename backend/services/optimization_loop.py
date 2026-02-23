@@ -36,6 +36,7 @@ class OptimizationLoop:
 
         # Directories
         self.prompts_dir = Path(__file__).parent.parent / "prompts"
+        self.agents_dir = Path(__file__).parent.parent / "agents"
         self.versions_dir = self.prompts_dir / "versions"
         self.versions_dir.mkdir(parents=True, exist_ok=True)
 
@@ -73,21 +74,26 @@ class OptimizationLoop:
         except Exception as e:
             logger.warning(f"Failed to save optimization history: {e}")
 
-    # ── Prompt Versioning ───────────────────────────────────────────
+    # ── State Versioning ───────────────────────────────────────────
 
-    def _snapshot_prompts(self, version_label: str) -> Path:
-        """Copy all prompts/*.md → prompts/versions/{version_label}/"""
+    def _snapshot_state(self, version_label: str) -> Path:
+        """Copy all prompts/*.md and agents/*.py → prompts/versions/{version_label}/"""
         version_dir = self.versions_dir / version_label
         version_dir.mkdir(parents=True, exist_ok=True)
 
         for prompt_file in self.prompts_dir.glob("*.md"):
             shutil.copy2(prompt_file, version_dir / prompt_file.name)
+            
+        agents_version_dir = version_dir / "agents"
+        agents_version_dir.mkdir(exist_ok=True)
+        for agent_file in self.agents_dir.glob("*.py"):
+            shutil.copy2(agent_file, agents_version_dir / agent_file.name)
 
-        logger.info(f"📸 Snapshot prompts → {version_dir}")
+        logger.info(f"📸 Snapshot state → {version_dir}")
         return version_dir
 
-    def _restore_prompts(self, version_label: str) -> bool:
-        """Restore prompts from a version snapshot."""
+    def _restore_state(self, version_label: str) -> bool:
+        """Restore prompts and agents from a version snapshot."""
         version_dir = self.versions_dir / version_label
         if not version_dir.exists():
             logger.error(f"Version {version_label} not found")
@@ -95,8 +101,13 @@ class OptimizationLoop:
 
         for prompt_file in version_dir.glob("*.md"):
             shutil.copy2(prompt_file, self.prompts_dir / prompt_file.name)
+            
+        agents_version_dir = version_dir / "agents"
+        if agents_version_dir.exists():
+            for agent_file in agents_version_dir.glob("*.py"):
+                shutil.copy2(agent_file, self.agents_dir / agent_file.name)
 
-        logger.info(f"♻️ Restored prompts from {version_label}")
+        logger.info(f"♻️ Restored state from {version_label}")
         return True
 
     # ── Convergence Detection ───────────────────────────────────────
@@ -113,6 +124,29 @@ class OptimizationLoop:
         if converged:
             logger.info(f"🎯 Convergence detected: deltas {deltas} all < {threshold}")
         return converged
+
+    # ── Testing ─────────────────────────────────────────────────────
+
+    async def _run_tests(self) -> bool:
+        """Run the pytest test suite to ensure no regressions before applying changes."""
+        logger.info("🧪 Running test suite to validate changes...")
+        try:
+            # We must be inside the backend folder.
+            process = await asyncio.create_subprocess_shell(
+                "pytest tests/",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(Path(__file__).parent.parent) 
+            )
+            stdout, stderr = await process.communicate()
+            if process.returncode != 0:
+                logger.error(f"❌ Test suite failed!\n{stdout.decode()}\n{stderr.decode()}")
+                return False
+            logger.info("✅ Test suite passed.")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to execute test suite: {e}")
+            return False
 
     # ── Main Loop ───────────────────────────────────────────────────
 
@@ -134,6 +168,8 @@ class OptimizationLoop:
         """
         run_id = uuid.uuid4().hex[:8]
         self._stop_requested = False
+        self._approved = False
+        self._waiting_for_approval = False
 
         self.current_run = {
             "run_id": run_id,
@@ -147,7 +183,8 @@ class OptimizationLoop:
             "iterations": [],
             "best_version": None,
             "best_score": 0.0,
-            "final_score": 0.0
+            "final_score": 0.0,
+            "current_iteration_data": None
         }
 
         scores = []
@@ -161,8 +198,8 @@ class OptimizationLoop:
                 self.current_run["current_iteration"] = iteration
                 version_label = f"{run_id}_v{iteration}"
 
-                # 1. Snapshot current prompts
-                self._snapshot_prompts(version_label)
+                # 1. Snapshot current state
+                self._snapshot_state(version_label)
 
                 # 2. Run benchmark suite
                 logger.info(f"🔄 Iteration {iteration}/{max_iterations} — Running benchmarks...")
@@ -189,6 +226,7 @@ class OptimizationLoop:
                         "changes": []
                     }
                     self.current_run["iterations"].append(iteration_data)
+                    self.current_run["current_iteration_data"] = None
                     continue
 
                 # 3. Get score from the benchmark run
@@ -207,6 +245,7 @@ class OptimizationLoop:
                     "changes": [],
                     "applied": False
                 }
+                self.current_run["current_iteration_data"] = iteration_data
 
                 logger.info(f"📊 Iteration {iteration}: Score = {score:.1f} (target: {target_score})")
 
@@ -249,6 +288,7 @@ class OptimizationLoop:
                 else:
                     # Wait for manual approval
                     self._waiting_for_approval = True
+                    self._approved = False # Reset before new wait
                     self._approval_event.clear()
                     self.current_run["status"] = f"waiting_approval_iteration_{iteration}"
 
@@ -277,12 +317,23 @@ class OptimizationLoop:
                         iteration_data["note"] = "Changes rejected by user"
                         logger.info("❌ Changes rejected — continuing to next iteration")
 
+                # --- 7.5. Run Continuous Tests ---
+                if iteration_data.get("applied"):
+                    test_success = await self._run_tests()
+                    if not test_success:
+                        logger.error("🚨 Changes broke the test suite! Reverting state immediately.")
+                        self._restore_state(version_label)
+                        iteration_data["applied"] = False
+                        iteration_data["note"] = "Changes applied but failed tests. Reverted."
+                        iteration_data["applied"] = False
+
                 self.current_run["iterations"].append(iteration_data)
+                self.current_run["current_iteration_data"] = None # Clear active iter data
 
             # 8. Restore best prompt version (best-of-N selection)
             if self.current_run["best_version"]:
-                self._restore_prompts(self.current_run["best_version"])
-                logger.info(f"♻️ Restored best prompts: {self.current_run['best_version']} "
+                self._restore_state(self.current_run["best_version"])
+                logger.info(f"♻️ Restored best state: {self.current_run['best_version']} "
                            f"(score: {self.current_run['best_score']:.1f})")
 
             self.current_run["final_score"] = scores[-1] if scores else 0
@@ -338,6 +389,7 @@ class OptimizationLoop:
                 "auto_apply": self.current_run["auto_apply"],
                 "best_score": self.current_run["best_score"],
                 "scores": [it["score"] for it in self.current_run["iterations"]],
+                "iterations": self.current_run["iterations"] + ([self.current_run["current_iteration_data"]] if self.current_run.get("current_iteration_data") else []),
                 "waiting_for_approval": self._waiting_for_approval,
                 # Expose raw pending changes while we are waiting for approval.
                 # This is populated during the optimizer step before we block.

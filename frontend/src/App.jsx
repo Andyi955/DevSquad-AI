@@ -69,38 +69,42 @@ function App() {
   const [isResizingLeft, setIsResizingLeft] = useState(false)
   const [isResizingRight, setIsResizingRight] = useState(false)
 
-  // Resizing Logic
+  // Resizing Logic using useCallback for stability
+  const handleMouseMove = useCallback((e) => {
+    if (isResizingLeft) {
+      const newWidth = e.clientX
+      if (newWidth > 150 && newWidth < 600) setLeftPanelWidth(newWidth)
+    }
+    if (isResizingRight) {
+      const newWidth = window.innerWidth - e.clientX
+      // Ensure it stays within reasonable bounds
+      if (newWidth > 100 && newWidth < 800) setRightPanelWidth(newWidth)
+    }
+  }, [isResizingLeft, isResizingRight])
+
+  const handleMouseUp = useCallback(() => {
+    setIsResizingLeft(false)
+    setIsResizingRight(false)
+    document.body.style.cursor = 'default'
+    document.body.style.userSelect = 'auto'
+  }, [])
+
   useEffect(() => {
-    const handleMouseMove = (e) => {
-      if (isResizingLeft) {
-        const newWidth = e.clientX
-        if (newWidth > 150 && newWidth < 600) setLeftPanelWidth(newWidth)
-      }
-      if (isResizingRight) {
-        const newWidth = window.innerWidth - e.clientX
-        if (newWidth > 200 && newWidth < 800) setRightPanelWidth(newWidth)
-      }
-    }
-
-    const handleMouseUp = () => {
-      setIsResizingLeft(false)
-      setIsResizingRight(false)
-      document.body.style.cursor = 'default'
-      document.body.style.userSelect = 'auto'
-    }
-
     if (isResizingLeft || isResizingRight) {
       window.addEventListener('mousemove', handleMouseMove)
       window.addEventListener('mouseup', handleMouseUp)
       document.body.style.cursor = 'col-resize'
       document.body.style.userSelect = 'none'
+    } else {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
     }
 
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isResizingLeft, isResizingRight])
+  }, [isResizingLeft, isResizingRight, handleMouseMove, handleMouseUp])
 
 
   // Handle incoming WebSocket messages
@@ -1296,15 +1300,18 @@ function App() {
 
           {!isRightCollapsed && (
             <div
-              className="resize-handle right"
-              onMouseDown={() => setIsResizingRight(true)}
+              className={`resize-handle right ${isResizingRight ? 'active' : ''}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setIsResizingRight(true);
+              }}
               style={{
-                width: '4px',
+                width: '6px',
                 cursor: 'col-resize',
                 background: isResizingRight ? 'var(--neon-purple)' : 'transparent',
                 height: '100%',
                 position: 'absolute',
-                left: '-2px',
+                left: '-3px',
                 zIndex: 100,
                 transition: 'background 0.2s',
               }}
@@ -1312,12 +1319,15 @@ function App() {
           )}
 
           <button
-            className="panel-toggle-btn right"
-            onClick={() => setIsRightCollapsed(!isRightCollapsed)}
+            className={`panel-toggle-btn right ${isRightCollapsed ? 'collapsed' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsRightCollapsed(!isRightCollapsed);
+            }}
             style={{
               position: 'absolute',
               top: '50%',
-              left: isRightCollapsed ? '-36px' : '-12px',
+              left: isRightCollapsed ? '-28px' : '-12px',
               transform: 'translateY(-50%)',
               zIndex: 101,
               width: '24px',
@@ -1329,8 +1339,9 @@ function App() {
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
-              boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+              boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              color: 'var(--text-main)'
             }}
           >
             {isRightCollapsed ? '‹' : '›'}
@@ -1342,10 +1353,10 @@ function App() {
               display: 'flex',
               flexDirection: 'column',
               height: '100%',
-              borderLeft: '1px solid var(--border-color)',
+              borderLeft: isRightCollapsed ? 'none' : '1px solid var(--border-color)',
               background: 'var(--bg-secondary)',
-              width: isRightCollapsed ? '0px' : rightPanelWidth,
-              transition: isResizingRight ? 'none' : 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              width: isRightCollapsed ? 0 : rightPanelWidth,
+              transition: isResizingRight ? 'none' : 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
               overflow: 'hidden',
               flexShrink: 0,
               position: 'relative'

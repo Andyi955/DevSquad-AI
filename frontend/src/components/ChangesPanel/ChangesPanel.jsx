@@ -82,8 +82,10 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
         );
     };
 
-    const renderChangeCard = (change, isApproved = false) => {
-        const changeId = change.id || change.change_id;
+    const renderChangeCard = (change, index, isApproved = false) => {
+        const changeId = change.id || change.change_id || `change-${index}`;
+        const uniqueKey = `${isApproved ? 'approved' : 'pending'}-${changeId}-${index}`;
+
         const agentColor = change.agent === 'Senior Dev' ? '#818cf8' :
             change.agent === 'Junior Dev' ? '#34d399' :
                 change.agent === 'Unit Tester' ? '#f59e0b' : '#94a3b8';
@@ -91,7 +93,7 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
         const stats = calculateStats(change.old_content || '', change.new_content || '');
 
         return (
-            <div key={changeId} className={`change-item-inline ${isApproved ? 'approved' : ''}`}>
+            <div key={uniqueKey} className={`change-item-inline ${isApproved ? 'approved' : ''}`}>
                 <div className="change-header-compact" onClick={() => toggleExpand(changeId)}>
                     <div className="change-info-main">
                         <span className="collapse-toggle">
@@ -315,7 +317,7 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
                     </div>
                 )}
 
-                {pendingChanges.map((change) => renderChangeCard(change, false))}
+                {pendingChanges.map((change, i) => renderChangeCard(change, i, false))}
 
                 {approvedChanges && approvedChanges.length > 0 && (
                     <div className="approved-changes-section" style={{ marginTop: '16px' }}>
@@ -335,7 +337,7 @@ function ChangesPanel({ pendingChanges, onApprove, onReject, onApproveAll, isFul
                             <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.05)' }}></div>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {approvedChanges.map((change) => renderChangeCard(change, true))}
+                            {approvedChanges.map((change, i) => renderChangeCard(change, i, true))}
                         </div>
                     </div>
                 )}

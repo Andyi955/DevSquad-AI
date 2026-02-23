@@ -180,6 +180,20 @@ For "replace_line", include "target" (text to find) and "replacement" fields.
                 parts.append(f"### {prompt_file.name}\n```\n{content[:2000]}...\n```\n\n")
             except:
                 pass
+                
+        # Include Recent Console Logs (Terminal)
+        log_path = Path(__file__).parent.parent / "logs" / "session_log.txt"
+        if log_path.exists():
+            try:
+                with open(log_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                    recent_logs = "".join(lines[-100:]) # Get last 100 lines
+                if recent_logs:
+                    parts.append("## Recent Console Logs (Terminal)\n")
+                    parts.append("Use these logs to diagnose if an agent caused an exception, Server Error 500, or a missing import. You can use these to understand *why* a benchmark failed.\n")
+                    parts.append(f"```text\n{recent_logs}\n```\n\n")
+            except Exception as e:
+                print(f"⚠️ [Optimizer] Could not read session log: {e}")
         
         parts.append("## Your Task\nAnalyze the issues and propose specific changes to fix them. "
                      "You may use 'full_rewrite' action for major prompt overhauls. Return JSON.")
@@ -241,6 +255,27 @@ For "replace_line", include "target" (text to find) and "replacement" fields.
             else:
                 print(f"⚠️ [Optimizer] Unknown action: {action}")
                 return False
+            
+            # --- SAFETY GUARDS ---
+            original_lines = len(content.splitlines())
+            new_lines = len(new_content.splitlines())
+            
+            # 1. Deletion Limit
+            if original_lines - new_lines > 5:
+                # If we are rewriting a prompt, maybe it's valid to make it shorter,
+                # but for code files, we strictly enforce it.
+                if file_path.endswith(".py"):
+                    print(f"🚨 [Optimizer] Safety Guard: Cannot delete more than 5 lines of Python code in {file_path}")
+                    return False
+            
+            # 2. AST Validation for Python files
+            if file_path.endswith(".py"):
+                import ast
+                try:
+                    ast.parse(new_content)
+                except SyntaxError as e:
+                    print(f"🚨 [Optimizer] AST Validation Failed: Proposed code is invalid Python: {e}")
+                    return False
             
             # Write the changes
             full_path.write_text(new_content, encoding="utf-8")

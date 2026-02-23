@@ -932,3 +932,8 @@
         grid-template-columns: 1fr;
     }
 }
+
+.loop-status-badge.waiting_approval_iteration {
+    background: rgba(247, 178, 46, 0.15);
+    color: #f7b22e;
+}

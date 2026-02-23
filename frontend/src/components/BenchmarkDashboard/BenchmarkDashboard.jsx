@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import './BenchmarkDashboard.css';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
@@ -205,6 +205,14 @@ export default function BenchmarkDashboard() {
     const [loopAutoApply, setLoopAutoApply] = useState(false);
     const [isStoppingLoop, setIsStoppingLoop] = useState(false);
 
+    // Pagination & Filters
+    const [historyPage, setHistoryPage] = useState(0);
+    const [loopHistoryPage, setLoopHistoryPage] = useState(0);
+    const [historyItemsPerPage, setHistoryItemsPerPage] = useState(10);
+    const [historySortOrder, setHistorySortOrder] = useState('newest'); // 'newest', 'oldest', 'highest_score', 'lowest_score'
+    const [historyFilterCategory, setHistoryFilterCategory] = useState('all');
+    const LOOP_HISTORY_ITEMS_PER_PAGE = 6;
+
     // Set default loop suite once suites are loaded
     useEffect(() => {
         if (suites?.suites) {
@@ -360,6 +368,45 @@ export default function BenchmarkDashboard() {
 
     const langIcons = { python: '🐍', javascript: '📦', go: '🐹', typescript: '🔷' };
     const getScoreClass = (score) => score >= 80 ? 'high' : score >= 50 ? 'mid' : 'low';
+
+    // ─── Filter & Sort Run History ───
+    const historyCategories = useMemo(() => {
+        const cats = new Set(history.map(r => r.category || 'misc'));
+        return Array.from(cats).sort();
+    }, [history]);
+
+    const processedHistory = useMemo(() => {
+        let filtered = [...history];
+
+        // Filter
+        if (historyFilterCategory && historyFilterCategory !== 'all') {
+            filtered = filtered.filter(run => (run.category || 'misc') === historyFilterCategory);
+        }
+
+        // Sort
+        filtered.sort((rawA, rawB) => {
+            // Assign fallback dates for invalid cases
+            const aDate = rawA.timestamp ? new Date(rawA.timestamp).getTime() : 0;
+            const bDate = rawB.timestamp ? new Date(rawB.timestamp).getTime() : 0;
+
+            if (historySortOrder === 'newest') return bDate - aDate;
+            if (historySortOrder === 'oldest') return aDate - bDate;
+
+            const aScore = rawA.overall_raw_score || 0;
+            const bScore = rawB.overall_raw_score || 0;
+            if (historySortOrder === 'highest_score') return bScore - aScore;
+            if (historySortOrder === 'lowest_score') return aScore - bScore;
+
+            return 0; // fallback
+        });
+
+        return filtered;
+    }, [history, historyFilterCategory, historySortOrder]);
+
+    // Reset pagination when history alters dramatically
+    useEffect(() => {
+        setHistoryPage(0);
+    }, [historyFilterCategory, historySortOrder, historyItemsPerPage]);
 
     // ─── Render ───
     if (loading) {
@@ -530,7 +577,67 @@ export default function BenchmarkDashboard() {
             {
                 history.length > 0 && (
                     <div className="bench-history-section">
-                        <h3>🕓 Run History</h3>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <h3 style={{ margin: 0 }}>🕓 Run History</h3>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <select
+                                        className="bench-btn"
+                                        style={{ padding: '2px 6px', fontSize: '0.65rem' }}
+                                        value={historyFilterCategory}
+                                        onChange={e => setHistoryFilterCategory(e.target.value)}
+                                    >
+                                        <option value="all">All Categories</option>
+                                        {historyCategories.map(c => (
+                                            <option key={c} value={c}>{c}</option>
+                                        ))}
+                                    </select>
+                                    <select
+                                        className="bench-btn"
+                                        style={{ padding: '2px 6px', fontSize: '0.65rem' }}
+                                        value={historySortOrder}
+                                        onChange={e => setHistorySortOrder(e.target.value)}
+                                    >
+                                        <option value="newest">Newest First</option>
+                                        <option value="oldest">Oldest First</option>
+                                        <option value="highest_score">Highest Score</option>
+                                        <option value="lowest_score">Lowest Score</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="pagination-controls" style={{ display: 'flex', alignItems: 'center' }}>
+                                <select
+                                    className="bench-btn"
+                                    style={{ padding: '2px 6px', fontSize: '0.65rem', marginRight: '8px' }}
+                                    value={historyItemsPerPage}
+                                    onChange={e => setHistoryItemsPerPage(Number(e.target.value))}
+                                >
+                                    <option value={10}>10</option>
+                                    <option value={25}>25</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                </select>
+                                <button
+                                    className="bench-btn"
+                                    disabled={historyPage === 0}
+                                    onClick={() => setHistoryPage(p => Math.max(0, p - 1))}
+                                    style={{ padding: '2px 8px', fontSize: '10px' }}
+                                >
+                                    ◀ Prev
+                                </button>
+                                <span style={{ fontSize: '10px', color: 'var(--text-muted)', margin: '0 8px' }}>
+                                    Page {historyPage + 1} of {Math.max(1, Math.ceil(processedHistory.length / historyItemsPerPage))}
+                                </span>
+                                <button
+                                    className="bench-btn"
+                                    disabled={historyPage >= Math.ceil(processedHistory.length / historyItemsPerPage) - 1}
+                                    onClick={() => setHistoryPage(p => p + 1)}
+                                    style={{ padding: '2px 8px', fontSize: '10px' }}
+                                >
+                                    Next ▶
+                                </button>
+                            </div>
+                        </div>
                         <table className="history-table">
                             <thead>
                                 <tr>
@@ -544,23 +651,26 @@ export default function BenchmarkDashboard() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {[...history].reverse().slice(0, 20).map((run, i) => (
-                                    <tr key={run.run_id || i}>
-                                        <td style={{ color: 'var(--text-muted)' }}>{history.length - i}</td>
-                                        <td>{run.benchmark_id || '—'}</td>
-                                        <td>{run.category || '—'}</td>
-                                        <td>{run.difficulty || '—'}</td>
-                                        <td>
-                                            <span className={`score-pill ${getScoreClass(run.overall_raw_score)}`}>
-                                                {run.overall_raw_score?.toFixed(1) || '—'}
-                                            </span>
-                                        </td>
-                                        <td>{run.overall_weighted_score?.toFixed(1) || '—'}</td>
-                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.6rem' }}>
-                                            {run.timestamp ? new Date(run.timestamp).toLocaleString() : '—'}
-                                        </td>
-                                    </tr>
-                                ))}
+                                {processedHistory.slice(historyPage * historyItemsPerPage, (historyPage + 1) * historyItemsPerPage).map((run, i) => {
+                                    const originalIndex = history.findIndex(r => r === run);
+                                    return (
+                                        <tr key={run.run_id || i}>
+                                            <td style={{ color: 'var(--text-muted)' }}>{history.length - originalIndex}</td>
+                                            <td>{run.benchmark_id || '—'}</td>
+                                            <td>{run.category || '—'}</td>
+                                            <td>{run.difficulty || '—'}</td>
+                                            <td>
+                                                <span className={`score-pill ${getScoreClass(run.overall_raw_score)}`}>
+                                                    {run.overall_raw_score?.toFixed(1) || '—'}
+                                                </span>
+                                            </td>
+                                            <td>{run.overall_weighted_score?.toFixed(1) || '—'}</td>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.6rem' }}>
+                                                {run.timestamp ? new Date(run.timestamp).toLocaleString() : '—'}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -638,6 +748,24 @@ export default function BenchmarkDashboard() {
                             </div>
                         )}
 
+                        {/* Recent Iterations Log */}
+                        {loopStatus.iterations?.length > 0 && (
+                            <div className="loop-iterations-log" style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                                <h4 style={{ fontSize: '0.7rem', margin: '0 0 8px 0', color: 'var(--text-main)' }}>Progress Log</h4>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '120px', overflowY: 'auto' }}>
+                                    {loopStatus.iterations.map((iter, i) => (
+                                        <div key={i} style={{ fontSize: '0.65rem', background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                            <span style={{ fontWeight: 'bold' }}>Iter {i + 1}</span>
+                                            <span style={{ color: 'var(--neon-green)', fontWeight: 'bold' }}>Score: {iter.score.toFixed(1)}</span>
+                                            <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-muted)' }}>
+                                                {iter.note || (iter.applied ? 'Proposed ' + (iter.changes?.length || 0) + ' Changes (Applied)' : (iter.changes?.length > 0 ? 'Proposed changes (Rejected)' : 'No Changes'))}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Pending changes for approval */}
                         {loopStatus.waiting_for_approval && loopStatus.pending_changes?.length > 0 && (
                             <div className="loop-pending">
@@ -663,40 +791,83 @@ export default function BenchmarkDashboard() {
                 {/* Loop history */}
                 {loopHistory.length > 0 && (
                     <div className="loop-history">
-                        <h4>Past Optimization Runs</h4>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                            <h4 style={{ margin: 0 }}>Past Optimization Runs</h4>
+                            <div className="pagination-controls" style={{ display: 'flex', alignItems: 'center' }}>
+                                <button
+                                    className="bench-btn"
+                                    disabled={loopHistoryPage === 0}
+                                    onClick={() => setLoopHistoryPage(p => Math.max(0, p - 1))}
+                                    style={{ padding: '2px 8px', fontSize: '10px' }}
+                                >
+                                    ◀ Prev
+                                </button>
+                                <span style={{ fontSize: '10px', color: 'var(--text-muted)', margin: '0 8px' }}>
+                                    Page {loopHistoryPage + 1} of {Math.ceil(loopHistory.length / LOOP_HISTORY_ITEMS_PER_PAGE)}
+                                </span>
+                                <button
+                                    className="bench-btn"
+                                    disabled={loopHistoryPage >= Math.ceil(loopHistory.length / LOOP_HISTORY_ITEMS_PER_PAGE) - 1}
+                                    onClick={() => setLoopHistoryPage(p => p + 1)}
+                                    style={{ padding: '2px 8px', fontSize: '10px' }}
+                                >
+                                    Next ▶
+                                </button>
+                            </div>
+                        </div>
                         <div className="loop-history-grid">
-                            {[...loopHistory].reverse().slice(0, 10).map((run, i) => (
-                                <div className="loop-run-card" key={run.run_id || i}>
-                                    <div className="loop-run-header">
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <span className={`loop-status-badge ${run.status}`}>{run.status}</span>
-                                            <span className="loop-run-id">#{run.run_id}</span>
+                            {[...loopHistory].reverse().slice(loopHistoryPage * LOOP_HISTORY_ITEMS_PER_PAGE, (loopHistoryPage + 1) * LOOP_HISTORY_ITEMS_PER_PAGE).map((run, i) => {
+                                let badgeClass = run.status || 'default';
+                                if (badgeClass.startsWith('waiting_approval_iteration')) badgeClass = 'waiting_approval_iteration';
+
+                                let formattedStatus = run.status || '—';
+                                if (formattedStatus.startsWith('waiting_approval_iteration')) formattedStatus = 'Awaiting Approval';
+                                else if (formattedStatus === 'max_iterations') formattedStatus = 'Max Iterations';
+                                else if (formattedStatus === 'no_improvement') formattedStatus = 'No Improvement';
+                                else formattedStatus = formattedStatus.charAt(0).toUpperCase() + formattedStatus.slice(1);
+
+                                return (
+                                    <div className="loop-run-card" key={run.run_id || i}>
+                                        <div className="loop-run-header">
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                                                <span className={`loop-status-badge ${badgeClass}`} style={{
+                                                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100px'
+                                                }} title={formattedStatus}>{formattedStatus}</span>
+                                                <span className="loop-run-id">#{run.run_id}</span>
+                                            </div>
+                                            <button
+                                                className="run-delete-btn"
+                                                onClick={(e) => { e.stopPropagation(); deleteLoopRun(run.run_id); }}
+                                                title="Delete Run"
+                                            >
+                                                🗑️
+                                            </button>
                                         </div>
-                                        <button
-                                            className="run-delete-btn"
-                                            onClick={(e) => { e.stopPropagation(); deleteLoopRun(run.run_id); }}
-                                            title="Delete Run"
-                                        >
-                                            🗑️
-                                        </button>
+                                        <div style={{ padding: '0 4px', fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                                            {run.iterations?.length > 0 && (
+                                                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    ℹ️ {run.iterations[run.iterations.length - 1].note || `Finished after ${run.iterations.length} iterations`}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="loop-run-scores">
+                                            <span>Best: <strong className="score-val">{run.best_score?.toFixed(1)}</strong></span>
+                                            <span>Final: {run.final_score?.toFixed(1)}</span>
+                                        </div>
+                                        <div className="loop-run-meta">
+                                            <span>{run.iterations?.length || 0} iterations</span>
+                                            <span>{run.suite_id}</span>
+                                        </div>
+                                        {run.iterations?.length > 0 && (
+                                            <Sparkline
+                                                data={run.iterations.map(it => it.score)}
+                                                color={run.status === 'converged' ? '#00ff88' : '#9333ea'}
+                                                height={24}
+                                            />
+                                        )}
                                     </div>
-                                    <div className="loop-run-scores">
-                                        <span>Best: <strong className="score-val">{run.best_score?.toFixed(1)}</strong></span>
-                                        <span>Final: {run.final_score?.toFixed(1)}</span>
-                                    </div>
-                                    <div className="loop-run-meta">
-                                        <span>{run.iterations?.length || 0} iterations</span>
-                                        <span>{run.suite_id}</span>
-                                    </div>
-                                    {run.iterations?.length > 0 && (
-                                        <Sparkline
-                                            data={run.iterations.map(it => it.score)}
-                                            color={run.status === 'converged' ? '#00ff88' : '#9333ea'}
-                                            height={24}
-                                        />
-                                    )}
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 )}

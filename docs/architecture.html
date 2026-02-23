@@ -1,18 +1,26 @@
+in ol
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DevSquad-AI — System Architecture</title>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
             background: #0a0a1a;
             color: #e0e0e0;
             font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
             padding: 32px;
         }
+
         h1 {
             text-align: center;
             font-size: 1.8rem;
@@ -22,12 +30,14 @@
             -webkit-text-fill-color: transparent;
             margin-bottom: 8px;
         }
+
         .subtitle {
             text-align: center;
             color: #888;
             font-size: 0.85rem;
             margin-bottom: 32px;
         }
+
         .diagram-section {
             background: #111128;
             border: 1px solid rgba(147, 51, 234, 0.2);
@@ -35,6 +45,7 @@
             padding: 32px;
             margin-bottom: 32px;
         }
+
         .diagram-section h2 {
             font-size: 1.1rem;
             font-weight: 700;
@@ -44,11 +55,16 @@
             align-items: center;
             gap: 8px;
         }
+
         .mermaid {
             display: flex;
             justify-content: center;
         }
-        .mermaid svg { max-width: 100%; }
+
+        .mermaid svg {
+            max-width: 100%;
+        }
+
         .legend {
             display: flex;
             flex-wrap: wrap;
@@ -57,11 +73,13 @@
             margin-top: 20px;
             font-size: 0.75rem;
         }
+
         .legend-item {
             display: flex;
             align-items: center;
             gap: 6px;
         }
+
         .legend-dot {
             width: 12px;
             height: 12px;
@@ -69,6 +87,7 @@
         }
     </style>
 </head>
+
 <body>
     <h1>DevSquad-AI — System Architecture</h1>
     <p class="subtitle">Multi-Agent Orchestration with Self-Optimization Pipeline</p>
@@ -355,12 +374,61 @@ flowchart LR
 </pre>
     </div>
 
+    <!-- Diagram 5: Gemini Thought Signature Flow -->
+    <div class="diagram-section">
+        <h2>🧠 Gemini Thought Signature & State Preservation</h2>
+        <pre class="mermaid">
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#ec4899', 'lineColor': '#fff'}}}%%
+sequenceDiagram
+    participant U as 👤 User
+    participant O as 🎯 Orchestrator
+    participant G as 🧠 Gemini 3 Flash
+    participant DB as 💾 Session History
+
+    Note over O,G: Turn 1: Initial Request (Cold Start)
+    U->>O: "Refactor this function"
+    O->>G: Send User Message
+    G->>G: 💭 Thinking Process (Hidden)
+    G-->>O: Stream: "Thoughts" (Visible)
+    G-->>O: Stream: "Response Text" (Code/Message)
+    G-->>O: 🔑 Returns: [ThoughtSignature_A] (Cryptographic Token)
+    O->>DB: Save Message + [ThoughtSignature_A]
+
+    Note over O,G: Turn 2: Follow-up (Stateful)
+    U->>O: "Make it async"
+    O->>DB: Fetch History
+    DB-->>O: History + [ThoughtSignature_A]
+    O->>G: Send User Message + [ThoughtSignature_A]
+    
+    Note right of G: Model restores exact mental <br/>state from Signature A
+    
+    G->>G: 💭 Thinking (Continuing from State A)
+    G-->>O: Stream: "Thoughts"
+    G-->>O: Stream: "Updated Code"
+    G-->>O: 🔑 Returns: [ThoughtSignature_B]
+    O->>DB: Save Message + [ThoughtSignature_B]
+        </pre>
+    </div>
+
     <div class="legend">
-        <div class="legend-item"><div class="legend-dot" style="background:#9333ea"></div> Orchestration</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#38bdf8"></div> Agent Pool</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#00ff88"></div> Optimization Pipeline</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div> Scoring / Benchmarks</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#a855f7"></div> Quality Assurance</div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background:#9333ea"></div> Orchestration
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background:#38bdf8"></div> Agent Pool
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background:#00ff88"></div> Optimization Pipeline
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background:#f59e0b"></div> Scoring / Benchmarks
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background:#a855f7"></div> Quality Assurance
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background:#ec4899"></div> Gemini Thought State
+        </div>
     </div>
 
     <script>
@@ -373,4 +441,5 @@ flowchart LR
         });
     </script>
 </body>
+
 </html>
