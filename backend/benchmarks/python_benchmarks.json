@@ -1,0 +1,63 @@
+[
+    {
+        "id": "py_fizzbuzz",
+        "language": "python",
+        "category": "code_gen",
+        "difficulty": "easy",
+        "weight": 1.0,
+        "prompt": "Write a Python FizzBuzz implementation that prints numbers 1-100. For multiples of 3 print 'Fizz', multiples of 5 print 'Buzz', multiples of both print 'FizzBuzz'. Save it to fizzbuzz.py and run it to verify the output.",
+        "expected_behaviors": [
+            "Creates fizzbuzz.py using [CREATE_FILE]",
+            "Correct FizzBuzz logic for 1-100",
+            "Runs the script using [RUN_COMMAND] to verify output",
+            "Output includes 'FizzBuzz' for multiples of 15"
+        ]
+    },
+    {
+        "id": "py_api_client",
+        "language": "python",
+        "category": "code_gen",
+        "difficulty": "medium",
+        "weight": 1.5,
+        "prompt": "Create a Python REST API client class that fetches users from jsonplaceholder.typicode.com/users with error handling, retries, and type hints. Save it to api_client.py and run it to verify it works.",
+        "expected_behaviors": [
+            "Uses requests or httpx library",
+            "Implements retry logic or exponential backoff",
+            "Has proper error handling with try/except",
+            "Uses type hints on function signatures",
+            "Creates the file using [CREATE_FILE]",
+            "Runs the code using [RUN_COMMAND] to verify it works"
+        ]
+    },
+    {
+        "id": "py_file_parser",
+        "language": "python",
+        "category": "debugging",
+        "difficulty": "medium",
+        "weight": 1.2,
+        "prompt": "Here is a buggy CSV parser. Find and fix all bugs, then run it to verify:\n\n```python\nimport csv\n\ndef parse_sales(filepath):\n    totals = {}\n    with open(filepath) as f:\n        reader = csv.reader(f)\n        for row in reader:\n            product = row[0]\n            amount = row[1]  # Bug: not converting to float\n            if product in totals:\n                totals[product] = amount  # Bug: should += not =\n            else:\n                totals[product] = amount\n    return totals\n\nresult = parse_sales('sales.csv')  # Bug: file doesn't exist, need to create test data\nprint(result)\n```\n\nFix all 3 bugs, create test CSV data, and run it.",
+        "expected_behaviors": [
+            "Identifies the float conversion bug",
+            "Fixes the accumulation bug (= to +=)",
+            "Creates test CSV data",
+            "Runs the fixed script to verify output",
+            "Uses [RUN_COMMAND] to execute the code"
+        ]
+    },
+    {
+        "id": "py_venv_setup",
+        "language": "python",
+        "category": "terminal_usage",
+        "difficulty": "hard",
+        "weight": 2.0,
+        "prompt": "Set up a Python virtual environment, install the 'requests' and 'rich' packages inside it, then write a script that uses both packages to fetch a random joke from https://official-joke-api.appspot.com/random_joke and display it with rich formatting. Run the script inside the venv to prove it works.",
+        "expected_behaviors": [
+            "Creates a virtual environment using [RUN_COMMAND]",
+            "Activates the venv",
+            "Installs packages using pip inside the venv",
+            "Writes a script that imports both requests and rich",
+            "Runs the script inside the venv using [RUN_COMMAND]",
+            "Output shows formatted joke text"
+        ]
+    }
+]

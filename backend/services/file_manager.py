@@ -240,6 +240,30 @@ class FileManager:
             "new_path": str(new_path.relative_to(self.workspace_path)).replace("\\", "/"),
             "status": "renamed"
         }
+
+    async def delete_item(self, path: str) -> dict:
+        """Delete a file or folder from workspace"""
+        import shutil
+        target = self._sanitize_path(path)
+        
+        print(f"🗑️ [FileManager] Attempting to delete: {target}")
+        
+        if not target.exists():
+            print(f"❌ [FileManager] Delete failed: {path} does not exist")
+            raise ValueError(f"Item does not exist: {path}")
+            
+        if target.is_dir():
+            print(f"📂 [FileManager] Removing directory: {target}")
+            shutil.rmtree(target)
+        else:
+            print(f"📄 [FileManager] Unlinking file: {target}")
+            target.unlink()
+            
+        print(f"✅ [FileManager] Successfully deleted: {path}")
+        return {
+            "path": path,
+            "status": "deleted"
+        }
     
     async def get_directory(self, search_pattern: Optional[str] = None) -> List[dict]:
         """List all files in workspace with optional search pattern (Read Only)"""

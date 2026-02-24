@@ -2,6 +2,22 @@
 
 All notable changes to the DevSquad AI project.
 
+## [2026-02-23]
+
+### 🔄 Optimization Loop Reliability
+- **Approval State Reset**: Fixed a bug where the manual approval flag was not reset between iterations, ensuring human-in-the-loop checks on every step.
+- **Live Progress Logging**: Implemented real-time status updates in the dashboard, showing iteration scores and notes as they happen.
+- **Robust Error Handling**: Improved recovery and logging for failed benchmark runs within the loop.
+
+### 📊 Benchmark Dashboard Enhancements
+- **Advanced History Filtering**: Added sorting (newest/oldest/highest score) and category filtering to the past optimization runs table.
+- **Client-Side Pagination**: Implemented pagination for the history table to improve performance with large numbers of runs.
+- **UI Bug Fixes**: Resolved a `ReferenceError` with `useMemo` and fixed layout breakage on long status labels.
+
+### 💅 UI/UX Stability
+- **Sidebar Resizing Fix**: Resolved a layout issue where widening the left panel created a blank gap by correctly binding content width to the resizable container.
+- **Terminal Activity**: Fixed notification dot behavior for background terminal tasks.
+
 ## [2026-02-07]
 
 ### 🕵️‍♂️ Review Agent & Self-Improvement System

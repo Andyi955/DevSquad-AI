@@ -3,8 +3,10 @@ import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area
 } from 'recharts';
 import {
-    TrendingUp, AlertCircle, CheckCheck, Check, X, ArrowRight, Brain, Activity, MessageSquare, Zap, ChevronDown, ChevronUp, Clock, Target, History, Plus, Archive
+    TrendingUp, AlertCircle, CheckCheck, Check, X, ArrowRight, Brain, Activity, MessageSquare, Zap, ChevronDown, ChevronUp, Clock, Target, History, Plus, Archive, Settings
 } from 'lucide-react';
+import OptimizerPanel from '../components/OptimizerPanel/OptimizerPanel';
+import ConfirmationModal from '../components/ConfirmationModal/ConfirmationModal';
 
 const API_URL = 'http://127.0.0.1:8000';
 
@@ -15,6 +17,7 @@ const Dashboard = () => {
     const [expandedCards, setExpandedCards] = useState({});
     const [activeTab, setActiveTab] = useState('current');
     const [selectedSession, setSelectedSession] = useState(null);
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
     useEffect(() => {
         fetchData();
@@ -45,7 +48,7 @@ const Dashboard = () => {
     };
 
     const startNewSession = async () => {
-        if (!window.confirm('Start a new review session? Current reviews will be archived.')) return;
+        setIsConfirmOpen(false);
         try {
             const res = await fetch(`${API_URL}/reviews/new-session`, { method: 'POST' });
             await res.json();
@@ -150,7 +153,16 @@ const Dashboard = () => {
                         <Archive size={14} /> History ({historyList.archived_sessions?.length || 0})
                     </button>
                     <button
-                        onClick={startNewSession}
+                        onClick={() => setActiveTab('optimizer')}
+                        style={{
+                            ...styles.tabButton,
+                            ...(activeTab === 'optimizer' ? styles.tabButtonActive : {})
+                        }}
+                    >
+                        <Settings size={14} /> Optimizer
+                    </button>
+                    <button
+                        onClick={(e) => setIsConfirmOpen(e)}
                         style={styles.newSessionButton}
                         title="Start new review session"
                     >
@@ -272,7 +284,7 @@ const Dashboard = () => {
                         </div>
                     </div>
                 </div>
-            ) : (
+            ) : activeTab === 'history' ? (
                 /* History Panel */
                 <div style={styles.historyPanel}>
                     {selectedSession ? (
@@ -356,7 +368,32 @@ const Dashboard = () => {
                         </div>
                     )}
                 </div>
-            )}
+            ) : activeTab === 'tasks' ? (
+                /* Tasks Panel */
+                <div style={styles.historyPanel}>
+                    <TaskPanel onPlanApproved={(plan) => setPendingPlan(plan)} />
+                </div>
+            ) : activeTab === 'optimizer' ? (
+                /* Optimizer Panel */
+                <div style={styles.historyPanel}>
+                    <OptimizerPanel />
+                </div>
+            ) : null}
+
+            <ConfirmationModal
+                isOpen={!!isConfirmOpen}
+                onClose={() => setIsConfirmOpen(false)}
+                onConfirm={startNewSession}
+                title="New Session"
+                message="Start a new review session?"
+                confirmText="Start Session"
+                isDanger={false}
+                coords={isConfirmOpen?.currentTarget ? {
+                    top: isConfirmOpen.currentTarget.getBoundingClientRect().top - 48,
+                    left: isConfirmOpen.currentTarget.getBoundingClientRect().right - 250,
+                    transform: 'none'
+                } : null}
+            />
         </div>
     );
 };
@@ -458,6 +495,22 @@ const styles = {
         borderColor: 'rgba(236, 72, 153, 0.3)',
         color: '#ec4899'
     },
+    notificationBadge: {
+        position: 'absolute',
+        top: '-4px',
+        right: '-4px',
+        width: '16px',
+        height: '16px',
+        background: '#ef4444',
+        borderRadius: '50%',
+        fontSize: '10px',
+        fontWeight: 'bold',
+        color: 'white',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        animation: 'pulse 2s infinite'
+    },
     newSessionButton: {
         display: 'flex',
         alignItems: 'center',
@@ -511,9 +564,9 @@ const styles = {
     rightPanel: {
         display: 'flex',
         flexDirection: 'column',
-        background: '#111',
+        background: '#0d0d0d',
         overflow: 'hidden',
-        padding: '20px'
+        padding: '16px'
     },
     sectionHeader: {
         display: 'flex',
@@ -547,8 +600,8 @@ const styles = {
         overflowX: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        gap: '12px',
-        paddingRight: '8px',
+        gap: '8px',
+        paddingRight: '4px',
         scrollbarWidth: 'thin',
         scrollbarColor: '#333 transparent'
     },
@@ -689,9 +742,9 @@ const StatBadge = ({ label, value, icon, color }) => (
 
 const CritiqueCard = ({ data, isExpanded, onToggle }) => {
     const getScoreColor = (score) => {
-        if (score >= 80) return { bg: 'rgba(34, 197, 94, 0.15)', border: 'rgba(34, 197, 94, 0.3)', text: '#22c55e' };
-        if (score >= 50) return { bg: 'rgba(234, 179, 8, 0.15)', border: 'rgba(234, 179, 8, 0.3)', text: '#eab308' };
-        return { bg: 'rgba(239, 68, 68, 0.15)', border: 'rgba(239, 68, 68, 0.3)', text: '#ef4444' };
+        if (score >= 80) return { bg: 'rgba(34, 197, 94, 0.1)', border: 'rgba(34, 197, 94, 0.2)', text: '#22c55e' };
+        if (score >= 50) return { bg: 'rgba(234, 179, 8, 0.1)', border: 'rgba(234, 179, 8, 0.2)', text: '#eab308' };
+        return { bg: 'rgba(239, 68, 68, 0.1)', border: 'rgba(239, 68, 68, 0.2)', text: '#ef4444' };
     };
 
     const colors = getScoreColor(data.score);
@@ -699,9 +752,9 @@ const CritiqueCard = ({ data, isExpanded, onToggle }) => {
 
     return (
         <div style={{
-            background: 'linear-gradient(135deg, rgba(22, 22, 22, 0.8) 0%, rgba(18, 18, 18, 0.9) 100%)',
-            borderRadius: '16px',
-            border: '1px solid rgba(255,255,255,0.06)',
+            background: colors.bg,
+            borderRadius: '12px',
+            border: `1px solid ${colors.border}`,
             overflow: 'hidden',
             transition: 'all 0.2s ease',
             flexShrink: 0
@@ -709,81 +762,86 @@ const CritiqueCard = ({ data, isExpanded, onToggle }) => {
             <div
                 onClick={onToggle}
                 style={{
-                    padding: '16px',
+                    padding: '10px 14px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     cursor: 'pointer',
-                    borderBottom: isExpanded ? '1px solid rgba(255,255,255,0.05)' : 'none'
+                    gap: '12px'
                 }}
             >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
                     <div style={{
-                        width: '36px',
-                        height: '36px',
-                        borderRadius: '10px',
-                        background: 'linear-gradient(135deg, #333 0%, #222 100%)',
+                        width: '28px',
+                        height: '28px',
+                        borderRadius: '6px',
+                        background: 'rgba(255,255,255,0.05)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        fontSize: '12px',
+                        fontSize: '10px',
                         fontWeight: '700',
-                        border: '1px solid rgba(255,255,255,0.1)'
+                        color: '#888',
+                        flexShrink: 0
                     }}>
                         {(data.agent_name || 'SYS').substring(0, 2).toUpperCase()}
                     </div>
-                    <div>
-                        <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#eee' }}>
+                    <div style={{ minWidth: 0 }}>
+                        <h3 style={{ margin: 0, fontSize: '13px', fontWeight: '500', color: '#eee', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {data.agent_name || 'Unknown Agent'}
                         </h3>
-                        <span style={{ fontSize: '11px', color: '#666' }}>
-                            {data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : 'Just now'}
-                            {data.turn_id && ` • Turn #${data.turn_id}`}
+                        <span style={{ fontSize: '10px', color: '#555' }}>
+                            {data.timestamp ? new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
                         </span>
                     </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <div style={{
-                        padding: '6px 14px',
-                        borderRadius: '20px',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
                         background: colors.bg,
-                        border: `1px solid ${colors.border}`,
                         color: colors.text,
-                        fontSize: '13px',
+                        fontSize: '11px',
                         fontWeight: '700',
                         fontFamily: 'monospace'
                     }}>
-                        {data.score}/100
+                        {data.score}
                     </div>
-                    {isExpanded ? <ChevronUp size={16} color="#666" /> : <ChevronDown size={16} color="#666" />}
+                    {isExpanded ? <ChevronUp size={14} color="#444" /> : <ChevronDown size={14} color="#444" />}
                 </div>
             </div>
             {isExpanded && (
-                <div style={{ padding: '16px', paddingTop: '0' }}>
+                <div style={{ padding: '0 14px 14px 14px', borderTop: '1px solid rgba(255,255,255,0.03)' }}>
                     {data.summary && (
-                        <p style={{ margin: '12px 0 16px 0', fontSize: '13px', color: '#bbb', lineHeight: '1.6' }}>
+                        <p style={{ margin: '10px 0', fontSize: '12px', color: '#999', lineHeight: '1.5' }}>
                             {data.summary}
                         </p>
                     )}
                     {critiques.length > 0 && (
                         <div style={{
-                            background: 'rgba(0,0,0,0.3)',
-                            borderRadius: '10px',
-                            padding: '12px',
-                            border: '1px solid rgba(255,255,255,0.03)'
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '2px'
                         }}>
                             {critiques.map((point, i) => (
                                 <div key={i} style={{
                                     display: 'flex',
                                     alignItems: 'flex-start',
-                                    gap: '8px',
-                                    padding: '8px 0',
-                                    borderBottom: i < critiques.length - 1 ? '1px solid rgba(255,255,255,0.03)' : 'none'
+                                    gap: '6px',
+                                    padding: '4px 0',
+                                    fontSize: '11px',
+                                    color: '#bbb'
                                 }}>
-                                    <span style={{ flexShrink: 0 }}>
-                                        {point.includes('✅') ? '✅' : point.includes('⚠️') ? '⚠️' : point.includes('❌') ? '❌' : '•'}
+                                    <span style={{
+                                        color: point.includes('❌') ? '#ef4444' : point.includes('⚠️') ? '#f59e0b' : '#22c55e',
+                                        fontWeight: '700',
+                                        flexShrink: 0,
+                                        width: '12px',
+                                        display: 'inline-block'
+                                    }}>
+                                        {point.includes('❌') ? 'x' : point.includes('⚠️') ? '!' : '•'}
                                     </span>
-                                    <span style={{ fontSize: '12px', color: '#999', lineHeight: '1.5' }}>
+                                    <span style={{ lineHeight: '1.4' }}>
                                         {point.replace(/^[✅⚠️❌]\s*/, '')}
                                     </span>
                                 </div>
@@ -798,62 +856,63 @@ const CritiqueCard = ({ data, isExpanded, onToggle }) => {
 
 const ImprovementCard = ({ data, onApply, isExpanded, onToggle }) => (
     <div style={{
-        background: 'linear-gradient(135deg, rgba(22, 22, 22, 0.9) 0%, rgba(18, 18, 18, 0.95) 100%)',
-        borderRadius: '16px',
-        border: '1px solid rgba(245, 158, 11, 0.15)',
+        background: 'rgba(245, 158, 11, 0.03)',
+        borderRadius: '12px',
+        border: '1px solid rgba(245, 158, 11, 0.1)',
         overflow: 'hidden',
         flexShrink: 0
     }}>
         <div
             onClick={onToggle}
             style={{
-                padding: '14px 16px',
+                padding: '10px 14px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 cursor: 'pointer',
-                borderBottom: isExpanded ? '1px solid rgba(255,255,255,0.05)' : 'none'
+                gap: '12px'
             }}
         >
-            <div>
-                <span style={{
-                    display: 'inline-block',
-                    padding: '4px 10px',
-                    background: 'rgba(236, 72, 153, 0.15)',
-                    borderRadius: '6px',
-                    fontSize: '11px',
-                    fontFamily: 'monospace',
-                    color: '#ec4899',
-                    marginBottom: '6px'
-                }}>
-                    {data.target_file}
-                </span>
-                <p style={{ margin: 0, fontSize: '13px', color: '#ccc', lineHeight: '1.4' }}>
-                    {data.description}
-                </p>
+            <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <span style={{
+                        padding: '2px 6px',
+                        background: 'rgba(236, 72, 153, 0.1)',
+                        borderRadius: '4px',
+                        fontSize: '9px',
+                        fontFamily: 'monospace',
+                        color: '#ec4899',
+                        textTransform: 'uppercase'
+                    }}>
+                        {data.target_file?.split('/').pop() || 'File'}
+                    </span>
+                    <span style={{ fontSize: '12px', color: '#ccc', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {data.description}
+                    </span>
+                </div>
             </div>
-            {isExpanded ? <ChevronUp size={16} color="#666" /> : <ChevronDown size={16} color="#666" />}
+            {isExpanded ? <ChevronUp size={14} color="#666" /> : <ChevronDown size={14} color="#666" />}
         </div>
         {isExpanded && (
-            <div style={{ padding: '16px', paddingTop: '0' }}>
+            <div style={{ padding: '0 14px 14px 14px', borderTop: '1px solid rgba(255,255,255,0.03)' }}>
                 <div style={{
-                    background: 'rgba(0,0,0,0.4)',
-                    borderRadius: '10px',
-                    padding: '12px',
-                    marginTop: '12px',
-                    marginBottom: '16px',
+                    background: 'rgba(0,0,0,0.3)',
+                    borderRadius: '8px',
+                    padding: '10px',
+                    marginTop: '10px',
+                    marginBottom: '10px',
                     border: '1px solid rgba(255,255,255,0.03)',
-                    maxHeight: '200px',
+                    maxHeight: '150px',
                     overflowY: 'auto'
                 }}>
                     <pre style={{
                         margin: 0,
-                        fontSize: '11px',
+                        fontSize: '10px',
                         fontFamily: 'JetBrains Mono, monospace',
                         color: '#4ade80',
                         whiteSpace: 'pre-wrap',
                         wordBreak: 'break-word',
-                        lineHeight: '1.5'
+                        lineHeight: '1.4'
                     }}>
                         {data.proposed_content}
                     </pre>
@@ -862,24 +921,22 @@ const ImprovementCard = ({ data, onApply, isExpanded, onToggle }) => (
                     onClick={(e) => { e.stopPropagation(); onApply(); }}
                     style={{
                         width: '100%',
-                        padding: '12px',
-                        background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%)',
-                        border: '1px solid rgba(34, 197, 94, 0.3)',
-                        borderRadius: '10px',
+                        padding: '8px',
+                        background: 'rgba(34, 197, 94, 0.1)',
+                        border: '1px solid rgba(34, 197, 94, 0.2)',
+                        borderRadius: '6px',
                         color: '#22c55e',
-                        fontSize: '12px',
+                        fontSize: '11px',
                         fontWeight: '600',
-                        textTransform: 'uppercase',
-                        letterSpacing: '1px',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '8px',
+                        gap: '6px',
                         transition: 'all 0.2s ease'
                     }}
                 >
-                    <Check size={14} /> Apply Fix
+                    <Check size={12} /> Apply
                 </button>
             </div>
         )}

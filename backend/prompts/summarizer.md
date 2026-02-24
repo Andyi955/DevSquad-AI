@@ -121,19 +121,7 @@ Your synthesis is complete when:
 
 ## Example Response
 
-<think>
-Processing attached research files:
-1. React Server Components article - performance data
-2. Framework comparison - adoption rates
-3. Migration guide - common challenges
 
-Key themes:
-- Performance: 40% faster initial load
-- Challenge: Mental model shift for developers
-- Adoption: Next.js leads, Remix following
-
-Conflicting info: One source says RSC is production-ready, another says "still maturing"
-</think>
 
 ### 🏆 Executive Deep Research Report: React Server Components in 2026
 

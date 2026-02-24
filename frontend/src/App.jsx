@@ -13,6 +13,10 @@ import TimelineView from './components/Timeline/TimelineView'
 import TerminalComponent from './components/Terminal' // Import Terminal
 import './components/ResizeHandles.css' // Layout Resizing
 import Dashboard from './pages/Dashboard'
+import TaskPanel from './components/TaskPanel/TaskPanel'
+import ConfirmationModal from './components/ConfirmationModal/ConfirmationModal'
+import HistoryPanel from './components/HistoryPanel/HistoryPanel'
+import BenchmarkDashboard from './components/BenchmarkDashboard/BenchmarkDashboard'
 
 
 // Hooks
@@ -45,6 +49,17 @@ function App() {
   const [researchReport, setResearchReport] = useState(null)
   const [timeline, setTimeline] = useState([]) // New activity timeline
   const [hasTerminalActivity, setHasTerminalActivity] = useState(false) // Notification dot for terminal
+  const [pendingPlan, setPendingPlan] = useState(null) // Pending task plan for approval
+  const [modalConfirm, setModalConfirm] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    itemPath: '',
+    confirmText: 'Confirm',
+    onConfirm: null,
+    isDanger: true,
+    coords: null
+  })
 
   // Layout State
   const [leftPanelWidth, setLeftPanelWidth] = useState(260)
@@ -54,38 +69,42 @@ function App() {
   const [isResizingLeft, setIsResizingLeft] = useState(false)
   const [isResizingRight, setIsResizingRight] = useState(false)
 
-  // Resizing Logic
+  // Resizing Logic using useCallback for stability
+  const handleMouseMove = useCallback((e) => {
+    if (isResizingLeft) {
+      const newWidth = e.clientX
+      if (newWidth > 150 && newWidth < 600) setLeftPanelWidth(newWidth)
+    }
+    if (isResizingRight) {
+      const newWidth = window.innerWidth - e.clientX
+      // Ensure it stays within reasonable bounds
+      if (newWidth > 100 && newWidth < 800) setRightPanelWidth(newWidth)
+    }
+  }, [isResizingLeft, isResizingRight])
+
+  const handleMouseUp = useCallback(() => {
+    setIsResizingLeft(false)
+    setIsResizingRight(false)
+    document.body.style.cursor = 'default'
+    document.body.style.userSelect = 'auto'
+  }, [])
+
   useEffect(() => {
-    const handleMouseMove = (e) => {
-      if (isResizingLeft) {
-        const newWidth = e.clientX
-        if (newWidth > 150 && newWidth < 600) setLeftPanelWidth(newWidth)
-      }
-      if (isResizingRight) {
-        const newWidth = window.innerWidth - e.clientX
-        if (newWidth > 200 && newWidth < 800) setRightPanelWidth(newWidth)
-      }
-    }
-
-    const handleMouseUp = () => {
-      setIsResizingLeft(false)
-      setIsResizingRight(false)
-      document.body.style.cursor = 'default'
-      document.body.style.userSelect = 'auto'
-    }
-
     if (isResizingLeft || isResizingRight) {
       window.addEventListener('mousemove', handleMouseMove)
       window.addEventListener('mouseup', handleMouseUp)
       document.body.style.cursor = 'col-resize'
       document.body.style.userSelect = 'none'
+    } else {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
     }
 
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isResizingLeft, isResizingRight])
+  }, [isResizingLeft, isResizingRight, handleMouseMove, handleMouseUp])
 
 
   // Handle incoming WebSocket messages
@@ -200,7 +219,11 @@ function App() {
             const index = prev.findLastIndex(m => !m.isUser && m.type !== 'handoff');
             if (index !== -1) {
               const updated = [...prev];
-              updated[index] = { ...updated[index], concise_message: data.concise_message };
+              updated[index] = {
+                ...updated[index],
+                concise_message: data.concise_message,
+                is_technical: data.is_technical
+              };
               return updated;
             }
             return prev;
@@ -256,6 +279,31 @@ function App() {
         // Keep researching for synthesis
         break
 
+      case 'plan_created':
+        // Planner Agent generated a new task plan
+        setPendingPlan(data.plan)
+        if (data.auto_approved) {
+          // Benchmark mode: plan is auto-approved, no need to show approval UI
+          showToast('📋 Benchmark: Plan auto-approved and execution started', '🤖')
+          // Don't switch to tasks tab in benchmark mode
+        } else {
+          // Normal app mode: show approval UI
+          showToast('📋 New task plan created! Review in Tasks tab', '📋')
+          // Switch to tasks tab to show the plan for approval
+          setMainTab('tasks')
+        }
+        break
+
+      case 'plan_approved':
+        // Plan was approved (either by user or auto-approved in benchmark mode)
+        setPendingPlan(data.plan)
+        break
+
+      case 'plan_rejected':
+        // Plan was rejected
+        setPendingPlan(null)
+        break
+
       case 'agent_done':
       case 'complete':
         setIsTyping(false)
@@ -275,11 +323,22 @@ function App() {
 
       case 'error':
         setIsTyping(false)
+        if (data.isTimeout) {
+          // It's a timeout, show the continue prompt logic in AgentChat
+          // We can signal this by passing a special flag or just letting the user see the error + Retry button
+          // But AgentChat handles 'showContinuePrompt' internally via props or local state.
+          // Since showContinuePrompt is local to AgentChat, we might need to expose it or just let the error message represent the state.
+          // Actually, AgentChat has no prop to force showContinuePrompt from App.jsx, it has onStop/onSendMessage.
+          // Let's just treat it as a stopped state so the user can hit continue.
+          setIsStopped(true)
+        }
+
         setMessages(prev => [...prev, {
           id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           agent: data.agent,
-          content: `❌ Error: ${data.content}`,
+          content: data.isTimeout ? `Construction Timed Out: ${data.content}` : `❌ Error: ${data.content}`,
           isError: true,
+          isTimeout: data.isTimeout, // Pass this through
           timestamp: new Date(),
           complete: true
         }])
@@ -399,6 +458,46 @@ function App() {
       console.error('Failed to fetch usage:', err)
     }
   }
+
+  // Fetch pending plan for Tasks tab notification
+  const fetchPlan = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/plan/current`)
+      const data = await res.json()
+      setPendingPlan(data.plan)
+    } catch (err) {
+      // Plan endpoint may not exist yet
+    }
+  }
+
+  // Poll for plan updates
+  useEffect(() => {
+    fetchPlan()
+    const interval = setInterval(fetchPlan, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Load chat history on mount
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/history`)
+        const data = await res.json()
+        if (Array.isArray(data) && data.length > 0) {
+          console.log(`📜 [App] Loaded ${data.length} messages from history`)
+          setMessages(data.map(m => ({
+            ...m,
+            id: `hist-${Math.random().toString(36).substr(2, 9)}`,
+            timestamp: new Date(m.timestamp),
+            complete: true
+          })))
+        }
+      } catch (err) {
+        console.error('Failed to load history:', err)
+      }
+    }
+    loadHistory()
+  }, [])
 
   const uploadFiles = async (fileList, resetWorkspace = false) => {
     console.log('🚀 [App] uploadFiles called. Files:', fileList.length, 'Reset:', resetWorkspace);
@@ -550,7 +649,7 @@ function App() {
     setAttachedFiles(prev => prev.filter(f => f.path !== path))
   }, [])
 
-  const sendChatMessage = useCallback(async (message) => {
+  const sendChatMessage = useCallback(async (message, switchTab = true) => {
     if (!isConnected || !message.trim()) return
 
     // Chat can proceed without a workspace.
@@ -597,11 +696,37 @@ function App() {
         attached_files: attachedFiles
       }
     })
+
+    if (switchTab) {
+      setMainTab('chat')
+    }
+    setAttachedFiles([])
   }, [isConnected, wsSend, fileTree, selectedFile, attachedFiles])
 
   // Clear workspace (UI state only - files remain on disk)
-  const clearWorkspace = async (skipConfirm = false) => {
-    if (!skipConfirm && !confirm('Clear current view? Files will remain saved on disk.')) return
+  const clearWorkspace = async (skipConfirm = false, event = null) => {
+    if (!skipConfirm) {
+      const rect = event?.currentTarget.getBoundingClientRect()
+      setModalConfirm({
+        isOpen: true,
+        title: 'Clear',
+        message: 'Clear view?',
+        confirmText: 'Clear',
+        isDanger: false,
+        onConfirm: () => executeClearWorkspace(),
+        coords: rect ? {
+          top: rect.top - 48,
+          left: rect.right - 180, // Align right edge roughly
+          transform: 'none'
+        } : null
+      })
+      return
+    }
+    executeClearWorkspace()
+  }
+
+  const executeClearWorkspace = async () => {
+    setModalConfirm(prev => ({ ...prev, isOpen: false }))
 
     // DETACH backend so it stops looking at these files
     try {
@@ -725,6 +850,49 @@ function App() {
       showToast(`Move failed: ${err.message}`, '❌')
     }
   }
+  const deleteItem = (path, event = null) => {
+    const rect = event?.currentTarget.getBoundingClientRect()
+    setModalConfirm({
+      isOpen: true,
+      title: 'Delete',
+      message: 'Delete?',
+      itemPath: path,
+      confirmText: 'Delete',
+      isDanger: true,
+      onConfirm: () => executeDeletion(path),
+      coords: rect ? {
+        top: rect.top - 48,
+        left: rect.right - 220, // Align right edge
+        transform: 'none'
+      } : null
+    })
+  }
+
+  const executeDeletion = async (path) => {
+    setModalConfirm(prev => ({ ...prev, isOpen: false }))
+
+    try {
+      console.log('📤 [App] Sending delete request for:', path)
+      const res = await fetch(`${API_URL}/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+      })
+
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.detail || 'Delete failed')
+      }
+
+      console.log('✅ [App] Delete successful for:', path)
+      fetchFileTree()
+      showToast(`Deleted ${path}`, '🗑️')
+      if (selectedFile?.path === path) setSelectedFile(null)
+    } catch (err) {
+      console.error('❌ [App] Delete failed:', err)
+      showToast(`Delete failed: ${err.message}`, '❌')
+    }
+  }
 
   const renameItem = async (path, newName) => {
     try {
@@ -766,6 +934,30 @@ function App() {
       showToast('Failed to reset chat', '❌')
     }
   }, [showToast])
+
+  const loadSession = async (session) => {
+    try {
+      const res = await fetch(`${API_URL}/api/history/${session.id}/load`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        const mappedMessages = data.history.map(m => ({
+          agent: m.agent,
+          content: m.content,
+          thoughts: m.thoughts,
+          timestamp: m.timestamp,
+          isUser: m.agent === 'User',
+          isTechnical: m.is_technical
+        }));
+        setMessages(mappedMessages);
+        showToast(`Loaded session: ${session.title}`, '📂');
+      }
+    } catch (err) {
+      console.error('Failed to load session:', err);
+      showToast('Failed to load session', '❌');
+    }
+  };
 
   const approveChange = async (changeId, approved, feedback = null) => {
     try {
@@ -876,6 +1068,7 @@ function App() {
         onNewChat={handleNewChat}
         activeTab={mainTab}
         onTabChange={setMainTab}
+        hasPendingPlan={pendingPlan && pendingPlan.status === 'pending_approval'}
       />
 
       <div className="workspace-layout">
@@ -904,6 +1097,7 @@ function App() {
               onUploadToPath={uploadToPath}
               onMoveItem={moveItem}
               onRenameItem={renameItem}
+              onDeleteItem={deleteItem}
               onOpenFolder={openFolder}
               workspacePath={workspacePath}
             />
@@ -952,7 +1146,7 @@ function App() {
           </button>
         </div>
 
-        <main className="main-content">
+        <main className="main-content" style={{ minWidth: 0 }}>
           <div className="main-tabs">
             <button
               className={`main-tab-btn chat ${mainTab === 'chat' ? 'active' : ''}`}
@@ -980,12 +1174,32 @@ function App() {
               💻 TERMINAL
               {hasTerminalActivity && <span className="pulse-dot active" style={{ backgroundColor: '#ff5555' }}></span>}
             </button>
+            <button
+              className={`main-tab-btn benchmarks ${mainTab === 'benchmarks' ? 'active' : ''}`}
+              onClick={() => setMainTab('benchmarks')}
+            >
+              📊 BENCHMARKS
+            </button>
           </div>
 
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
             {mainTab === 'dashboard' ? (
               <div style={{ flex: 1, overflow: 'hidden' }}>
                 <Dashboard />
+              </div>
+            ) : mainTab === 'tasks' ? (
+              <div style={{ flex: 1, overflow: 'hidden', padding: '20px' }}>
+                <TaskPanel
+                  onPlanApproved={(plan) => {
+                    setPendingPlan(plan);
+                    setMainTab('chat');
+                    sendChatMessage("The task plan has been approved. Please begin work on the first task. 🚀");
+                  }}
+                  onSendFeedback={(message) => {
+                    // Send message and stay on tasks tab to see the plan update
+                    sendChatMessage(message, false);
+                  }}
+                />
               </div>
             ) : mainTab === 'chat' ? (
               <AgentChat
@@ -1000,6 +1214,19 @@ function App() {
                 onAttachFiles={attachFiles}
                 onRemoveFile={removeAttachedFile}
                 onShowChanges={() => setRightPanelTab('changes')}
+                onRate={(msg, rating) => {
+                  fetch('http://127.0.0.1:8000/api/rate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      message_id: msg.id,
+                      agent_name: msg.agent,
+                      content: msg.content,
+                      rating: rating,
+                      feedback: null
+                    })
+                  }).catch(err => console.error("Failed to save rating:", err));
+                }}
                 onRunCommand={(cmd) => {
                   // Send command to backend terminal
                   // We need a way to send this to the terminal websocket or a separate endpoint
@@ -1036,6 +1263,8 @@ function App() {
               />
             ) : mainTab === 'timeline' ? (
               <TimelineView timeline={timeline} />
+            ) : mainTab === 'benchmarks' ? (
+              <BenchmarkDashboard />
             ) : (
               // Deep Research View
               (mainTab === 'deep-research') && (
@@ -1071,15 +1300,18 @@ function App() {
 
           {!isRightCollapsed && (
             <div
-              className="resize-handle right"
-              onMouseDown={() => setIsResizingRight(true)}
+              className={`resize-handle right ${isResizingRight ? 'active' : ''}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setIsResizingRight(true);
+              }}
               style={{
-                width: '4px',
+                width: '6px',
                 cursor: 'col-resize',
                 background: isResizingRight ? 'var(--neon-purple)' : 'transparent',
                 height: '100%',
                 position: 'absolute',
-                left: '-2px',
+                left: '-3px',
                 zIndex: 100,
                 transition: 'background 0.2s',
               }}
@@ -1087,12 +1319,15 @@ function App() {
           )}
 
           <button
-            className="panel-toggle-btn right"
-            onClick={() => setIsRightCollapsed(!isRightCollapsed)}
+            className={`panel-toggle-btn right ${isRightCollapsed ? 'collapsed' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsRightCollapsed(!isRightCollapsed);
+            }}
             style={{
               position: 'absolute',
               top: '50%',
-              left: isRightCollapsed ? '-36px' : '-12px',
+              left: isRightCollapsed ? '-28px' : '-12px',
               transform: 'translateY(-50%)',
               zIndex: 101,
               width: '24px',
@@ -1104,8 +1339,9 @@ function App() {
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
-              boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+              boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              color: 'var(--text-main)'
             }}
           >
             {isRightCollapsed ? '‹' : '›'}
@@ -1117,31 +1353,107 @@ function App() {
               display: 'flex',
               flexDirection: 'column',
               height: '100%',
-              borderLeft: '1px solid var(--border-color)',
+              borderLeft: isRightCollapsed ? 'none' : '1px solid var(--border-color)',
               background: 'var(--bg-secondary)',
-              width: isRightCollapsed ? '0px' : rightPanelWidth,
-              transition: isResizingRight ? 'none' : 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              width: isRightCollapsed ? 0 : rightPanelWidth,
+              transition: isResizingRight ? 'none' : 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
               overflow: 'hidden',
               flexShrink: 0,
               position: 'relative'
             }}
           >
-            <div className="panel-tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', height: '48px', alignItems: 'center', padding: '0 12px', flexShrink: 0 }}>
-              <h3 style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                🛠️ Development Tools
-              </h3>
+            <div className="panel-tabs" style={{
+              display: 'flex',
+              borderBottom: '1px solid var(--border-color)',
+              height: '48px',
+              alignItems: 'stretch',
+              padding: '0',
+              flexShrink: 0
+            }}>
+              <button
+                onClick={() => setRightPanelTab('changes')}
+                style={{
+                  flex: 1,
+                  background: rightPanelTab === 'changes' ? 'rgba(147, 51, 234, 0.05)' : 'transparent',
+                  border: 'none',
+                  borderBottom: rightPanelTab === 'changes' ? '2px solid var(--neon-purple)' : '2px solid transparent',
+                  color: rightPanelTab === 'changes' ? 'var(--text-main)' : 'var(--text-muted)',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                🛠️ CHANGES
+              </button>
+              <button
+                onClick={() => setRightPanelTab('history')}
+                style={{
+                  flex: 1,
+                  background: rightPanelTab === 'history' ? 'rgba(0, 255, 136, 0.05)' : 'transparent',
+                  border: 'none',
+                  borderBottom: rightPanelTab === 'history' ? '2px solid var(--neon-green)' : '2px solid transparent',
+                  color: rightPanelTab === 'history' ? 'var(--text-main)' : 'var(--text-muted)',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                📜 HISTORY
+              </button>
+              <button
+                onClick={() => setRightPanelTab('research')}
+                style={{
+                  flex: 1,
+                  background: rightPanelTab === 'research' ? 'rgba(56, 189, 248, 0.05)' : 'transparent',
+                  border: 'none',
+                  borderBottom: rightPanelTab === 'research' ? '2px solid var(--neon-cyan)' : '2px solid transparent',
+                  color: rightPanelTab === 'research' ? 'var(--text-main)' : 'var(--text-muted)',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                🔎 RESEARCH
+              </button>
             </div>
 
             <div style={{ flex: 1, overflow: 'hidden' }}>
-              <ChangesPanel
-                pendingChanges={pendingChanges}
-                approvedChanges={approvedChanges}
-                onApprove={(id) => approveChange(id, true)}
-                onReject={(id) => approveChange(id, false)}
-                onApproveAll={approveAllChanges}
-                isFullScreen={false}
-                onToggleFullScreen={() => setIsChangesFullScreen(true)}
-              />
+              {rightPanelTab === 'changes' ? (
+                <ChangesPanel
+                  pendingChanges={pendingChanges}
+                  approvedChanges={approvedChanges}
+                  onApprove={(id) => approveChange(id, true)}
+                  onReject={(id) => approveChange(id, false)}
+                  onApproveAll={approveAllChanges}
+                  isFullScreen={false}
+                  onToggleFullScreen={() => setIsChangesFullScreen(true)}
+                />
+              ) : rightPanelTab === 'history' ? (
+                <HistoryPanel onSessionLoad={loadSession} />
+              ) : (
+                <ResearchPanel results={researchResults} onSearch={doResearch} />
+              )}
             </div>
           </aside>
         </div>
@@ -1178,6 +1490,17 @@ function App() {
           </div>
         ))}
       </div>
+      <ConfirmationModal
+        isOpen={modalConfirm.isOpen}
+        onClose={() => setModalConfirm(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={modalConfirm.onConfirm}
+        title={modalConfirm.title}
+        message={modalConfirm.message}
+        itemPath={modalConfirm.itemPath}
+        confirmText={modalConfirm.confirmText}
+        isDanger={modalConfirm.isDanger}
+        coords={modalConfirm.coords}
+      />
     </div>
   )
 }

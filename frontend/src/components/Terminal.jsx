@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
@@ -7,11 +7,29 @@ import 'xterm/css/xterm.css';
 const TerminalComponent = ({ isActive, onActivity }) => {
     // shell is now hardcoded to 'powershell' in backend for stability
     const shell = 'powershell';
+    const [refreshKey, setRefreshKey] = useState(0);
+    const [isResetting, setIsResetting] = useState(false);
 
     const terminalRef = useRef(null);
     const xtermRef = useRef(null);
     const fitAddonRef = useRef(null);
     const wsRef = useRef(null);
+
+    const handleReset = async () => {
+        setIsResetting(true);
+        try {
+            await fetch('http://127.0.0.1:8000/terminal/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+            setRefreshKey(prev => prev + 1);
+        } catch (err) {
+            console.error('Failed to reset terminal:', err);
+        } finally {
+            setIsResetting(false);
+        }
+    };
 
     useEffect(() => {
         // Initialize xterm.js
@@ -125,7 +143,7 @@ const TerminalComponent = ({ isActive, onActivity }) => {
                 ws.close();
             }
         };
-    }, [shell]); // Re-run if shell changes
+    }, [shell, refreshKey]); // Re-run if shell or refreshKey changes
 
     // Refit when the component becomes active/visible
     useEffect(() => {
@@ -173,7 +191,25 @@ const TerminalComponent = ({ isActive, onActivity }) => {
                     <span style={{ fontWeight: '600', letterSpacing: '0.05em' }}>TERMINAL</span>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button
+                        onClick={handleReset}
+                        disabled={isResetting}
+                        style={{
+                            background: 'transparent',
+                            border: '1px solid #444',
+                            color: '#aaa',
+                            padding: '2px 8px',
+                            borderRadius: '3px',
+                            cursor: isResetting ? 'wait' : 'pointer',
+                            fontSize: '0.65rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                        }}
+                    >
+                        {isResetting ? 'Resetting...' : '🔄 Reset PTY'}
+                    </button>
                     <div style={{
                         display: 'flex',
                         alignItems: 'center',

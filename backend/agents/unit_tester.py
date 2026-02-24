@@ -15,7 +15,8 @@ class UnitTesterAgent(BaseAgent):
             emoji="🧪",
             provider="gemini",
             model="gemini-3-flash-preview",
-            color="#f59e0b"  # Amber
+            color="#f59e0b",  # Amber
+            temperature=0.2
         )
     
     def _prompt_name(self) -> str:
@@ -68,8 +69,5 @@ When suggesting file changes:
 - Keep tests independent
 - Test one thing per test
 
-<think>
-Use this block to enumerate test cases and edge cases you're considering.
-Show your systematic approach to testing.
-</think>
+
 """

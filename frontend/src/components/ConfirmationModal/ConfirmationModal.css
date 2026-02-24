@@ -1,0 +1,148 @@
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.modal-overlay.transparent {
+    background: transparent;
+    backdrop-filter: none;
+    pointer-events: auto;
+    /* Allow interactions */
+}
+
+/* Ensure clicks outside still trigger close via the overlay listener in JS */
+
+.confirmation-modal.pill {
+    background: rgba(22, 22, 26, 0.98);
+    backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 2px var(--neon-purple);
+    border-radius: 8px;
+    /* Slightly more structured than a full pill for complexity */
+    padding: 6px 12px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    width: fit-content;
+    height: 36px;
+    white-space: nowrap;
+    animation: modalSlideUpFade 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 10000;
+}
+
+.confirmation-modal.pill.danger {
+    border-color: rgba(239, 68, 68, 0.3);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 4px rgba(239, 68, 68, 0.2);
+}
+
+.modal-icon {
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+}
+
+.modal-content-pill {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+}
+
+.modal-message-pill {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.modal-path-pill {
+    font-size: 0.72rem;
+    color: var(--neon-purple);
+    background: rgba(147, 51, 234, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    max-width: 140px;
+    /* Allow a bit more width */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border: 1px solid rgba(147, 51, 234, 0.2);
+}
+
+.modal-actions-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    padding-left: 10px;
+    margin-left: 4px;
+}
+
+.modal-actions-pill button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-weight: 700;
+    transition: all 0.2s;
+}
+
+.btn-pill-cancel {
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.btn-pill-cancel:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.btn-pill-confirm {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 4px 10px;
+    border-radius: 6px;
+}
+
+.btn-pill-confirm.delete {
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.4) !important;
+}
+
+.btn-pill-confirm.delete:hover {
+    background: rgba(239, 68, 68, 0.1);
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.2);
+}
+
+.btn-pill-confirm.proceed {
+    color: var(--neon-purple);
+    border: 1px solid rgba(147, 51, 234, 0.4) !important;
+}
+
+.btn-pill-confirm.proceed:hover {
+    background: rgba(147, 51, 234, 0.1);
+    box-shadow: 0 0 12px rgba(147, 51, 234, 0.2);
+}
+
+@keyframes modalSlideUpFade {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}

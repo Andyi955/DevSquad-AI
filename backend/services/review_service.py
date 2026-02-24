@@ -30,6 +30,16 @@ class ReviewService:
         
         self.latest_stats: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
+    
+    @property
+    def review_history(self) -> List[Dict[str, Any]]:
+        """Get all reviews from current session for Optimizer consumption"""
+        return self.session_reviews
+    
+    @property
+    def latest_review(self) -> Optional[Dict[str, Any]]:
+        """Get the most recent review for Supervisor context"""
+        return self.session_reviews[-1] if self.session_reviews else None
         
     def start_new_session(self) -> Dict[str, Any]:
         """

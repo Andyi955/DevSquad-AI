@@ -11,6 +11,9 @@ from datetime import datetime
 import os
 import shutil
 import aiofiles
+import uuid
+import json
+from pathlib import Path
 
 from .senior_dev import SeniorDevAgent
 from .junior_dev import JuniorDevAgent
@@ -18,6 +21,9 @@ from .unit_tester import UnitTesterAgent
 from .researcher import ResearcherAgent
 from .research_lead import ResearchLeadAgent
 from .summarizer import SummarizerAgent
+from .supervisor_agent import SupervisorAgent
+from .optimizer_agent import OptimizerAgent
+from .planner_agent import PlannerAgent
 from services.review_service import ReviewService
 
 
@@ -27,8 +33,10 @@ class Message:
     agent: str
     content: str
     thoughts: Optional[str] = None
+    signature: Optional[str] = None
     timestamp: datetime = field(default_factory=datetime.now)
     cues: List[str] = field(default_factory=list)
+    is_technical: bool = False
 
 
 class AgentOrchestrator:
@@ -46,15 +54,19 @@ class AgentOrchestrator:
         "FILE_SEARCH": "FileSearch"
     }
     
-    def __init__(self, file_manager=None, scraper=None, usage_tracker=None):
+    def __init__(self, file_manager=None, scraper=None, usage_tracker=None, terminal_manager=None, rating_service=None):
         self.file_manager = file_manager
         self.scraper = scraper
         self.usage_tracker = usage_tracker
+        self.terminal_manager = terminal_manager
+        self.rating_service = rating_service
         self.agents: Dict[str, Any] = {}
         self.conversation: List[Message] = []
         self.pending_file_changes: List[dict] = []
         self.last_handoff: Optional[str] = None
         self.handoff_queue: List[str] = []  # Queue for sequential handoffs
+        self.terminal_history: List[Dict] = [] # Shared terminal outputs
+        self.pending_command: Optional[Dict] = None # Command awaiting approval
         self.initialized = False
         self.mission_status = "IDLE"
         self._stop_event = asyncio.Event()
@@ -64,10 +76,217 @@ class AgentOrchestrator:
         if self.file_manager:
             self.review_service = ReviewService(self.file_manager)
 
+        # Supervisor Agent (always-on monitor)
+        self.supervisor = SupervisorAgent()
+        self.optimizer = OptimizerAgent(rating_service=self.rating_service)
+        self.planner = PlannerAgent()
+        self.correction_attempts = 0
+        self.max_correction_attempts = 2
+        
+        # Optimization State
+        self.optimized_report_ids: List[str] = []
+        self.pending_optimizations: List[dict] = []
+
         # Mission Checklist tracking
         self.mission_checklist: List[dict] = []  # [{step: str, agent: str, done: bool}]
         self.mission_description: str = ""
-    
+        
+        # Logging & Session State
+        self.session_id = uuid.uuid4().hex[:8]
+        self.start_time = datetime.now()
+        date_folder = self.start_time.strftime("%Y-%m-%d")
+        session_folder = f"{self.start_time.strftime('%H%M%S')}_{self.session_id}"
+        
+        # Base logs path: logs/YYYY-MM-DD/HHMMSS_ID/
+        self.base_logs_dir = Path("logs") / date_folder / session_folder
+        self.logs_dir = self.base_logs_dir / "conversations"
+        self.reports_dir = self.base_logs_dir / "reports"
+        self.history_file = self.base_logs_dir / "chat_history.json"
+        
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.reports_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Also ensure base logs exists for session discovery
+        Path("logs").mkdir(exist_ok=True)
+        
+        # Current active session history doesn't need to be loaded from global file anymore
+        # but we could load from self.history_file if it somehow existed (e.g. restart)
+        self._load_active_history()
+
+    def _load_active_history(self):
+        """Load chat history for the CURRENT session if it exists"""
+        try:
+            if self.history_file.exists():
+                with open(self.history_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.conversation = [
+                        Message(
+                            agent=m["agent"],
+                            content=m["content"],
+                            thoughts=m.get("thoughts"),
+                            signature=m.get("signature"),
+                            timestamp=datetime.fromisoformat(m["timestamp"]),
+                            is_technical=m.get("is_technical", False)
+                        )
+                        for m in data
+                    ]
+        except Exception as e:
+            print(f"⚠️ [Orchestrator] Failed to load active history: {e}")
+
+    def list_sessions(self) -> List[Dict]:
+        """Discover all past sessions by scanning the logs directory"""
+        sessions = []
+        logs_root = Path("logs")
+        if not logs_root.exists():
+            return []
+            
+        # Recursive glob to find all chat_history.json files
+        history_files = list(logs_root.glob("**/chat_history.json"))
+        
+        for hf in history_files:
+            try:
+                with open(hf, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if not data:
+                        continue
+                        
+                    # Find first user message for title
+                    first_user_msg = next((m for m in data if m.get("agent") == "User"), None)
+                    title = first_user_msg["content"] if first_user_msg else "Untitled Session"
+                    
+                    # Truncate title
+                    if len(title) > 60:
+                        title = title[:57] + "..."
+                        
+                    # Extract ID from parent folder name
+                    session_id = hf.parent.name # e.g. "163210_746fc68d"
+                    timestamp = data[0]["timestamp"] if data else datetime.now().isoformat()
+                    
+                    sessions.append({
+                        "id": session_id,
+                        "title": title,
+                        "timestamp": timestamp,
+                        "path": str(hf.relative_to(logs_root))
+                    })
+            except Exception as e:
+                print(f"⚠️ Error reading history file {hf}: {e}")
+                
+        # Sort by timestamp descending
+        sessions.sort(key=lambda x: x["timestamp"], reverse=True)
+        return sessions
+
+    def load_session_by_id(self, session_id: str):
+        """Load a specific session's history into the active conversation"""
+        logs_root = Path("logs")
+        # Search for the session folder
+        for hf in logs_root.glob("**/chat_history.json"):
+            if hf.parent.name == session_id:
+                try:
+                    with open(hf, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        self.conversation = [
+                            Message(
+                                agent=m["agent"],
+                                content=m["content"],
+                                thoughts=m.get("thoughts"),
+                                signature=m.get("signature"),
+                                timestamp=datetime.fromisoformat(m["timestamp"]),
+                                is_technical=m.get("is_technical", False)
+                            )
+                            for m in data
+                        ]
+                    print(f"📜 [Orchestrator] Loaded session {session_id}")
+                    return True
+                except Exception as e:
+                    print(f"⚠️ Failed to load session {session_id}: {e}")
+                    return False
+        return False
+        
+    def _log_to_file(self, log_type: str, agent_name: str, content: str):
+        """Persistent logging of agent responses and console output"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        if log_type == "report":
+            # Consolidate all agent reports into ONE session file
+            session_report = self.reports_dir / "session_report.txt"
+            try:
+                with open(session_report, "a", encoding="utf-8") as f:
+                    f.write(f"\n{'═' * 60}\n")
+                    f.write(f"  AGENT: {agent_name}\n")
+                    f.write(f"  Timestamp: {datetime.now().isoformat()}\n")
+                    f.write(f"{'═' * 60}\n\n")
+                    f.write(f"{content}\n")
+                print(f"💾 [Orchestrator] Appended {agent_name} report to {session_report}")
+            except Exception as e:
+                print(f"⚠️ [Orchestrator] Failed to save report: {e}")
+                
+        elif log_type == "console":
+            # Append to session log
+            session_file = self.logs_dir / f"session_log.txt"
+            try:
+                with open(session_file, "a", encoding="utf-8") as f:
+                    f.write(f"[{datetime.now().isoformat()}] [{agent_name}] {content}\n")
+            except Exception as e:
+                print(f"⚠️ [Orchestrator] Failed to log to session: {e}")
+        
+        # Also update JSON history
+        self._save_history()
+
+    def _save_history(self):
+        """Save conversation history to a JSON file for persistence"""
+        try:
+            history_data = [
+                {
+                    "agent": m.agent,
+                    "content": m.content,
+                    "thoughts": m.thoughts,
+                    "signature": m.signature,
+                    "timestamp": m.timestamp.isoformat(),
+                    "is_technical": m.is_technical
+                }
+                for m in self.conversation
+            ]
+            with open(self.history_file, "w", encoding="utf-8") as f:
+                json.dump(history_data, f, indent=2)
+        except Exception as e:
+            print(f"⚠️ [Orchestrator] Failed to save history JSON: {e}")
+
+    def get_history(self) -> List[Dict]:
+        """Return the current conversation history as dictionaries"""
+        return [
+            {
+                "agent": m.agent,
+                "content": m.content,
+                "thoughts": m.thoughts,
+                "signature": m.signature,
+                "timestamp": m.timestamp.isoformat(),
+                "is_technical": m.is_technical
+            }
+            for m in self.conversation
+        ]
+    async def handle_plan_approval(self):
+        """Transition from pending plan to active mission"""
+        if not self.planner.current_plan:
+            return
+            
+        print("✅ [Orchestrator] Plan approved! Syncing checklist...")
+        self.load_plan_as_checklist(self.planner.current_plan)
+        self.mission_status = "BUSY"
+        self.planner.plan_approved = True
+        
+    def load_plan_as_checklist(self, plan: Dict[str, Any]):
+        """Convert a planner's plan into the mission checklist format"""
+        self.mission_description = plan.get("title", "Project Execution")
+        self.mission_checklist = []
+        for i, task in enumerate(plan.get("tasks", [])):
+            self.mission_checklist.append({
+                "step": i + 1,
+                "description": task.get("description", ""),
+                "agent": task.get("owner", "SENIOR"),
+                "done": False
+            })
+        print(f"📋 [Orchestrator] Checklist loaded from plan: {len(self.mission_checklist)} items")
+
     async def initialize(self):
         """Initialize all agents"""
         if self.initialized:
@@ -138,8 +357,8 @@ class AgentOrchestrator:
         if self.mission_checklist:
             print(f"📋 [Orchestrator] Parsed Mission Checklist: {len(self.mission_checklist)} items")
             for item in self.mission_checklist:
-                status = "✅" if item['done'] else "⬜"
-                print(f"   {status} {item['step']}. {item['description']} (→{item['agent']})")
+                status = "✅" if item.get('done') else "⬜"
+                print(f"   {status} {item.get('step', '?')}. {item.get('description', '')} (→{item.get('agent', 'SENIOR')})")
             return True
         
         return False
@@ -170,7 +389,8 @@ class AgentOrchestrator:
                     
                     # Find and update the matching item
                     for item in self.mission_checklist:
-                        if item['step'] == step_num and not item['done']:
+                        item_step = item.get('step')
+                        if item_step == step_num and not item.get('done', False):
                             item['done'] = True
                             updates_applied += 1
                             print(f"✅ [Orchestrator] Checklist updated: Step {step_num} marked complete")
@@ -183,7 +403,7 @@ class AgentOrchestrator:
         if not self.mission_checklist:
             return True  # No checklist = can complete anytime
         
-        return all(item['done'] for item in self.mission_checklist)
+        return all(item.get('done', False) for item in self.mission_checklist)
     
     def get_checklist_summary(self) -> str:
         """Get a formatted summary of the current checklist for agent context"""
@@ -192,10 +412,10 @@ class AgentOrchestrator:
         
         lines = [f"## Current Mission Checklist: {self.mission_description}"]
         for item in self.mission_checklist:
-            status = "[x]" if item['done'] else "[ ]"
-            lines.append(f"- {status} {item['step']}. {item['description']} (→{item['agent']})")
+            status = "[x]" if item.get('done', False) else "[ ]"
+            lines.append(f"- {status} {item.get('step', '?')}. {item.get('description', '')} (→{item.get('agent', 'SENIOR')})")
         
-        completed = sum(1 for item in self.mission_checklist if item['done'])
+        completed = sum(1 for item in self.mission_checklist if item.get('done', False))
         total = len(self.mission_checklist)
         lines.append(f"\n**Progress: {completed}/{total} complete**")
         
@@ -208,8 +428,16 @@ class AgentOrchestrator:
 
     
     def _select_initial_agent(self, message: str) -> str:
-        """Select which agent should respond first based on message content"""
+        """Select which agent should respond first based on message content or plan"""
         
+        # 0. Check checklist for first pending task (Plan Alignment)
+        if self.mission_checklist and self.planner.plan_approved:
+            for item in self.mission_checklist:
+                if not item.get("done"):
+                    owner = item.get("agent", "SENIOR").upper()
+                    target = self.CUE_TO_AGENT.get(owner, "Senior Dev")
+                    print(f"📋 [Orchestrator] Plan Alignment: Selecting {target} for next pending task")
+                    return target
         # 1. Check for explicit mentions first (Highest Priority)
         if re.search(r'\b(senior|lead|architect)\b', message, re.IGNORECASE):
             return "Senior Dev"
@@ -459,7 +687,7 @@ class AgentOrchestrator:
         # Build context with conversation history
         full_context = context or {}
         full_context["conversation"] = [
-            {"agent": m.agent, "content": m.content} 
+            {"agent": m.agent, "content": m.content, "signature": m.signature} 
             for m in self.conversation[-10:]
         ]
         
@@ -490,7 +718,8 @@ class AgentOrchestrator:
         message: str, 
         context: dict = None,
         max_turns: int = 5,
-        initial_agent: str = None
+        initial_agent: str = None,
+        benchmark_mode: bool = False
     ) -> AsyncGenerator[Dict, None]:
         """
         Process a message with streaming responses
@@ -504,12 +733,122 @@ class AgentOrchestrator:
             await self.initialize()
 
         # Handle Mission State
-        if self.mission_status == "IDLE":
-            # Start new mission - Clear previous context to avoid confusion
-            self.conversation = [] 
-            self.handoff_queue = []
-            self.mission_status = "IN_PROGRESS"
-            yield {"type": "agent_status", "status": "🚀 Initializing mission..."}
+        if self.mission_status == "IDLE" or not self.planner.plan_approved or self._is_checklist_complete():
+            # If the mission was complete or not approved, we need a plan (unless manually starting)
+            if not initial_agent and self.planner:
+                # Force IDLE mode if mission complete to clear context appropriately
+                if self._is_checklist_complete():
+                    print("✨ [Orchestrator] Previous mission complete. Resetting for new request.")
+                    self.clear_history()
+
+                self.mission_status = "IN_PROGRESS"
+                
+                # 🛡️ GLOBAL FOLDER GUARD FOR MISSIONS
+                # If we are starting a mission and it seems code-related, check for workspace
+                # In benchmark_mode, BenchmarkService guarantees a sandbox workspace exists
+                predicted_agent = self._select_initial_agent(message)
+                coding_agents = ["Junior Dev", "Senior Dev", "Unit Tester", "Reviewer", "Planner", "Architect"]
+                
+                is_benchmark = bool(benchmark_mode)
+                if predicted_agent in coding_agents and not self.file_manager.workspace_path and not is_benchmark:
+                    print(f"🛑 [Orchestrator] Blocked Planning: No workspace selected for {predicted_agent} intent.")
+                    yield {
+                        "type": "message",
+                        "agent": "System",
+                        "content": "### 📁 Workspace Required\nI'm ready to start planning, but I need a project home! 🏗️ \n\n Please **Select a Folder** in the sidebar (or Create a new one) so I can organize our tasks appropriately. 🚀",
+                        "is_technical": True
+                    }
+                    self.mission_status = "IDLE"
+                    return
+
+                # === PLANNER AGENT INTEGRATION ===
+                # Check if we are modifying an existing pending plan (User Feedback Loop)
+                if self.planner.current_plan and not self._is_checklist_complete() and not self.planner.plan_approved:
+                    try:
+                        print(f"🔄 [Orchestrator] Updating pending plan based on feedback...")
+                        yield {"type": "agent_status", "status": "📋 Updating task plan..."}
+                        
+                        plan = await self.planner.update_plan_from_feedback(message)
+                        
+                        if plan and plan.get("tasks"):
+                             # Yield plan event for frontend
+                            yield {
+                                "type": "plan_created",
+                                "plan": plan,
+                                "auto_approved": benchmark_mode
+                            }
+                            
+                            if benchmark_mode:
+                                print("🤖 [Orchestrator] Benchmark mode: auto-approving updated plan.")
+                                await self.handle_plan_approval()
+                                self.planner.approve_plan()
+                                yield {
+                                    "type": "plan_approved",
+                                    "plan": self.planner.current_plan
+                                }
+                            else:
+                                print("⏸️ [Orchestrator] Plan updated. Pausing for user approval.")
+                                yield {
+                                    "type": "agent_done",
+                                    "agent": "Planner",
+                                    "message": "I've updated the plan based on your feedback! Please check the **Tasks** tab again. ✅",
+                                    "complete": True
+                                }
+                                return
+                    except Exception as e:
+                        print(f"⚠️ [Planner] Plan update failed: {e}")
+                
+                # Generate a task plan before agents start working (New Plan)
+                try:
+                    print(f"\n📋 [Planner] Creating task plan...")
+                    yield {"type": "agent_status", "status": "📋 Creating task plan..."}
+                    
+                    # Build context for planner
+                    plan_context = ""
+                    if context and context.get("files"):
+                        file_list = [f.get("path", "unknown") for f in context.get("files", [])][:20]
+                        if file_list:
+                            plan_context = f"Available project files: {', '.join(file_list)}"
+                    
+                    # Generate the plan
+                    plan = await self.planner.create_plan(message, research_context=plan_context)
+                    
+                    if plan and plan.get("tasks"):
+                        print(f"📋 [Planner] Created plan: {plan.get('title')}")
+                        print(f"   Tasks: {len(plan.get('tasks', []))}")
+                        for task in plan.get("tasks", []):
+                            print(f"   - {task.get('description')} (→{task.get('owner', 'JUNIOR')})")
+                        
+                        # Yield plan event for frontend (include auto_approved flag for benchmark mode)
+                        yield {
+                            "type": "plan_created",
+                            "plan": plan,
+                            "auto_approved": benchmark_mode  # True if benchmark mode, False otherwise
+                        }
+                        
+                        if benchmark_mode:
+                            # Auto-approve plan in benchmark mode — no human in the loop
+                            print("🤖 [Orchestrator] Benchmark mode: auto-approving plan.")
+                            await self.handle_plan_approval()
+                            self.planner.approve_plan()
+                            # Broadcast plan_approved event for frontend sync
+                            yield {
+                                "type": "plan_approved",
+                                "plan": self.planner.current_plan
+                            }
+                        else:
+                            # PAUSE: Wait for user to approve the plan
+                            print("⏸️ [Orchestrator] Plan generated. Pausing for user approval.")
+                            yield {
+                                "type": "agent_done",
+                                "agent": "Planner",
+                                "message": "I've created a task plan for this project. Please review it in the **Tasks** tab. You can add, remove, or modify tasks before we start! 📋",
+                                "complete": True
+                            }
+                            return
+                except Exception as e:
+                    print(f"⚠️ [Planner] Planning failed, proceeding without plan: {e}")
+            # === END PLANNER INTEGRATION ===
         
         # Reset stop event
         self._stop_event.clear()
@@ -522,9 +861,18 @@ class AgentOrchestrator:
         # Build context with conversation history
         full_context = context or {}
         full_context["conversation"] = [
-            {"agent": m.agent, "content": m.content} 
+            {
+                "agent": m.agent, 
+                "content": str(m.content) if m.content is not None else "", 
+                "signature": m.signature
+            } 
             for m in self.conversation[-20:]
         ]
+        
+        # Ensure checklist is in context for the very first turn
+        checklist_summary = self.get_checklist_summary()
+        if checklist_summary:
+            full_context["checklist_summary"] = checklist_summary
         
         while turn < max_turns:
             if self._stop_event.is_set():
@@ -547,9 +895,7 @@ class AgentOrchestrator:
             turn += 1
             start_time = datetime.now()
             agent = self.agents[current_agent_name]
-            print(f"\n{'='*60}")
-            print(f"🎬 [Orchestrator] Turn {turn} starting with {current_agent_name}")
-            print(f"{'='*60}")
+            print(f"\n🚀 [Orchestrator] Turn {turn}: {current_agent_name}")
             
             yield {
                 "type": "agent_start",
@@ -558,68 +904,165 @@ class AgentOrchestrator:
                 "color": agent.color,
                 "turn": turn
             }
+
+            # 🛡️ FOLDER SELECTION GUARD
+            # Coding and Planning agents require a workspace for project-based work.
+            # Researcher is exempted for general knowledge queries.
+            # In benchmark_mode, BenchmarkService guarantees a sandbox workspace.
+            coding_agents = ["Junior Dev", "Senior Dev", "Unit Tester", "Reviewer", "Planner", "Architect"]
             
+            is_benchmark = bool(benchmark_mode)
+            if current_agent_name in coding_agents and not self.file_manager.workspace_path and not is_benchmark:
+                print(f"🛑 [Orchestrator] Blocked {current_agent_name}: No workspace selected.")
+                yield {
+                    "type": "message",
+                    "agent": "System",
+                    "content": f"### 📂 Project Folder Required\nI'm ready to work as **{current_agent_name}**, but I need a workspace to access and create files! 💻 \n\n Please **Select a Folder** in the sidebar to continue our project. 📁",
+                    "is_technical": True
+                }
+                yield {
+                    "type": "agent_done",
+                    "agent": current_agent_name,
+                    "message": "Waiting for folder selection... ⏸️"
+                }
+                # Reset mission status so it doesn't get stuck in IN_PROGRESS
+                self.mission_status = "IDLE" 
+                break
+
             # Update Gemini's context
             turn_context = full_context.copy()
+            
+            # Inject Terminal History into context
+            if self.terminal_history:
+                history_text = "\n".join([
+                    f"Command: {h['command']}\nOutput: {h['output'][:1000]}{'...' if len(h['output']) > 1000 else ''}"
+                    for h in self.terminal_history[-5:] # Last 5 commands
+                ])
+                turn_context["terminal_context"] = f"Recent Terminal History:\n{history_text}"
             
             # Collect full response for cue extraction
             full_response = ""
             full_thoughts = ""
+            signature = None
+            cues = []
             
-            # Stream agent response
+            # Stream agent response with timeout protection
             suppress_message = False
             last_was_cue = False
-            print(f"\n🔄 [Orchestrator] Starting stream for {current_agent_name}...")
-            # print(f"   📨 Message (first 200 chars): {current_message[:200]}...")
-            async for event in agent.think(current_message, turn_context):
-                if self._stop_event.is_set():
-                    print(f"🛑 [Orchestrator] Force stopping turn for {current_agent_name}")
-                    break
-                if event.get("update_state"):
-                    continue
+            print(f"   Context: {list(turn_context.keys())}")
+            
+            try:
+                # Use a custom async iterator wrapper to implement per-chunk timeout
+                async def timed_stream():
+                    iterator = agent.think(current_message, turn_context)
+                    while True:
+                        try:
+                            # Wait for next chunk with 60s timeout (generous for first chunk of heavy models)
+                            event = await asyncio.wait_for(iterator.__anext__(), timeout=60.0)
+                            yield event
+                        except StopAsyncIteration:
+                            break
+                
+                async for event in timed_stream():
+                    if self._stop_event.is_set():
+                        print(f"🛑 [Orchestrator] Force stopping turn for {current_agent_name}")
+                        break
                     
-                if event["type"] == "thought":
-                    full_thoughts += event.get("content", "")
-                    yield {
-                        "type": "thought",
-                        "agent": current_agent_name,
-                        "content": event.get("content", "")
-                    }
-                elif event["type"] == "message":
-                    full_response += event.get("content", "")
+                    if event.get("update_state"):
+                        continue
+                        
+                    event_type = event.get("type", "unknown")
+                    event_content = event.get("content", "")
                     
-                    # Heuristic: if we just saw an EDIT/CREATE cue, and this chunk starts a code block,
-                    # we start suppressing it from the chat stream.
-                    if (last_was_cue or "[EDIT_FILE:" in full_response or "[CREATE_FILE:" in full_response) and "```" in event.get("content", ""):
-                        suppress_message = True
-                        yield {
-                            "type": "agent_status",
-                            "status": f"Generating code changes..."
-                        }
+                    # Log to console log for persistence
+                    if event_type in ["message", "thought", "dev_log", "agent_status"]:
+                        self._log_to_file("console", current_agent_name, event_content or event.get("message", ""))
 
-                    if not suppress_message:
+                    if event_type == "thought":
+                        full_thoughts += event_content
                         yield {
-                            "type": "message",
+                            "type": "thought",
                             "agent": current_agent_name,
-                            "content": event.get("content", "")
+                            "content": event_content
                         }
-                    
-                    if "```" in event.get("content", "") and suppress_message and full_response.count("```") % 2 == 0:
-                        # We closed the code block
-                        suppress_message = False
+                    elif event_type == "message":
+                        full_response += event_content
+                        
+                        # Heuristic: if we just saw an EDIT/CREATE cue, and this chunk starts a code block,
+                        # we start suppressing it from the chat stream.
+                        if (last_was_cue or "[EDIT_FILE:" in full_response or "[CREATE_FILE:" in full_response) and "```" in event_content:
+                            suppress_message = True
+                            yield {
+                                "type": "agent_status",
+                                "status": f"Generating code changes..."
+                            }
 
-                elif event["type"] == "error":
-                    yield {
-                        "type": "error",
-                        "agent": current_agent_name,
-                        "content": event.get("content", "Unknown error")
-                    }
-                elif event["type"] == "cue":
-                    if event.get("content", "") in ["EDIT_FILE", "CREATE_FILE", "DELETE_FILE"]:
-                        last_was_cue = True
+                        if not suppress_message:
+                            yield {
+                                "type": "message",
+                                "agent": current_agent_name,
+                                "content": event_content
+                            }
+                        
+                        if "```" in event_content and suppress_message and full_response.count("```") % 2 == 0:
+                            # We closed the code block
+                            suppress_message = False
+
+                    elif event_type == "error":
+                        yield {
+                            "type": "error",
+                            "agent": current_agent_name,
+                            "content": event_content or "Unknown error"
+                        }
+                    elif event_type == "signature":
+                        signature = event_content
+                    elif event_type == "cue":
+                        if event_content in ["EDIT_FILE", "CREATE_FILE", "DELETE_FILE"]:
+                            last_was_cue = True
+                            
+            except asyncio.TimeoutError:
+                print(f"⏰ [Orchestrator] Agent {current_agent_name} timed out!")
+                yield {
+                    "type": "error", 
+                    "agent": current_agent_name,
+                    "content": "⚠️ Agent timed out while thinking. You may want to retry or continue.",
+                    "isTimeout": True
+                }
+                # Force break loop
+                break
+            except Exception as e:
+                import traceback
+                print(f"❌ [Orchestrator] Agent {current_agent_name} error: {e}")
+                print(f"❌ [Orchestrator] Traceback: {traceback.format_exc()}")
+                yield {
+                    "type": "error", 
+                    "agent": current_agent_name,
+                    "content": f"⚠️ Error during agent execution: {e}",
+                    "isTimeout": False
+                }
+                # Force break loop
+                break
+            
+            # --- STUCK DETECTION & FALLBACK ---
+            # If we exited the loop with NO response and NO thoughts, the agent might be stuck/empty.
+            if not full_response.strip() and not full_thoughts.strip() and not cues:
+                 print(f"⚠️ [Orchestrator] Agent {current_agent_name} returned EMPTY response. Retrying or finalizing...")
+                 # Fallback: Ask agent to clarify
+                 yield {
+                     "type": "agent_status",
+                     "status": "Analyzing empty response..."
+                 }
+                 # We simply create a 'No content' message so the next turn can pick up or user can intervene
+                 full_response = "_[No response generated by agent]_"
             
             # Track usage and timing
             duration = (datetime.now() - start_time).total_seconds()
+            
+            # Save final report to file
+            if full_response.strip() or full_thoughts.strip():
+                report_content = f"THOUGHTS:\n{full_thoughts}\n\nRESPONSE:\n{full_response}"
+                self._log_to_file("report", current_agent_name, report_content)
+                self._log_to_file("console", "SYSTEM", f"Turn {turn} complete for {current_agent_name} in {duration:.2f}s")
             print(f"⏱️ [Orchestrator] Turn {turn} ({current_agent_name}) took {duration:.2f}s")
             
             # Send stats to UI
@@ -650,6 +1093,58 @@ class AgentOrchestrator:
             # Trigger Background Review (Async - Fire and Forget)
             if self.review_service and turn % 2 == 0:  # Review every 2 turns to save tokens
                 asyncio.create_task(self._trigger_background_review())
+
+            # --- SUPERVISOR ANALYSIS ---
+            # Run Supervisor to detect failures and potentially inject corrections
+            if self.supervisor and self.correction_attempts < self.max_correction_attempts:
+                try:
+                    # Get recent review reports for context
+                    review_reports = []
+                    if self.review_service and hasattr(self.review_service, 'latest_review'):
+                        if self.review_service.latest_review:
+                            review_reports = [self.review_service.latest_review]
+                    
+                    supervisor_result = await self.supervisor.analyze_turn(
+                        agent_name=current_agent_name,
+                        thoughts=full_thoughts,
+                        message=full_response,
+                        cues_detected=cues,
+                        checklist=self.mission_checklist,
+                        review_reports=review_reports
+                    )
+                    
+                    if supervisor_result.get("status") == "NEEDS_CORRECTION":
+                        self.correction_attempts += 1
+                        correction_msg = supervisor_result.get("correction_message", "Please complete your turn properly.")
+                        
+                        # Notify UI about the correction
+                        yield {
+                            "type": "supervisor_correction",
+                            "agent": current_agent_name,
+                            "issue": supervisor_result.get("issue"),
+                            "correction": correction_msg
+                        }
+                        
+                        # Inject correction as a follow-up message
+                        yield {
+                            "type": "message",
+                            "agent": "Supervisor",
+                            "content": f"⚠️ {supervisor_result.get('issue')}"
+                        }
+                        
+                        # Re-prompt the same agent with the correction
+                        message = f"[SUPERVISOR CORRECTION] {correction_msg}"
+                        print(f"🔄 [Supervisor] Injecting correction for {current_agent_name}")
+                        # Continue to next iteration with the correction message
+                        continue
+                        
+                except Exception as e:
+                    print(f"⚠️ [Supervisor] Analysis failed: {e}")
+            
+            # Reset correction counter for new agents
+            if self.correction_attempts >= self.max_correction_attempts:
+                print(f"⚠️ [Supervisor] Max corrections reached for this turn, proceeding anyway")
+                self.correction_attempts = 0
 
             # Process Mission Checklist cues
             if self._extract_mission_checklist(full_response):
@@ -769,45 +1264,57 @@ class AgentOrchestrator:
             # --- BUG FIX: EMPTY BUBBLE ---
             # If the agent said nothing human-readable but did something (cues),
             # provide a status message so there's not an empty bubble in UI.
+            is_technical_action = False
+            
             if not clean_full_response.strip() and cues:
-                # Determine action from cues
+                # determine action
                 action_desc = "Working..."
-                for cue in cues:
-                    if cue.startswith("READ:"): action_desc = f"Reading {cue.split(':')[1]}"
-                    elif cue.startswith("READ_URL:"): action_desc = f"Reading external site"
-                    elif cue.startswith("SEARCH:"): action_desc = f"Searching web"
-                    elif cue.startswith("SUB_RESEARCH:"): action_desc = f"Initializing sub-research"
-                    elif cue.startswith("RUN_"): action_desc = f"Executing system task"
                 
-                # Check for handoff
-                c_handoffs = [c for c in cues if c in self.CUE_TO_AGENT]
-                if c_handoffs:
-                    target = self.CUE_TO_AGENT[c_handoffs[0]]
-                    clean_full_response = f"Proceeding to {target}... 🔀"
+                # Special Case: Project Completion
+                if "PROJECT_COMPLETE" in cues:
+                     clean_full_response = "✅ **Mission Accomplished!**"
+                     is_technical_action = False # We WANT this to be a visible bubble
                 else:
-                    clean_full_response = f"_{action_desc}_"
+                    for cue in cues:
+                        if cue.startswith("READ:"): action_desc = f"Reading {cue.split(':')[1]}"
+                        elif cue.startswith("READ_URL:"): action_desc = f"Reading external site"
+                        elif cue.startswith("SEARCH:"): action_desc = f"Searching web"
+                        elif cue.startswith("SUB_RESEARCH:"): action_desc = f"Initializing sub-research"
+                        elif cue.startswith("RUN_"): action_desc = f"Executing system task"
+                    
+                    # Check for handoff
+                    c_handoffs = [c for c in cues if c in self.CUE_TO_AGENT]
+                    if c_handoffs:
+                        target = self.CUE_TO_AGENT[c_handoffs[0]]
+                        clean_full_response = f"Proceeding to {target}... 🔀"
+                    else:
+                        clean_full_response = f"_{action_desc}_"
+                        is_technical_action = True
             # ------------------------------
             
             # Save to conversation - USE CLEANED/PLACEHOLDER VERSION
-            # This ensures agents don't see giant code blocks or old content in history
             msg = Message(
                 agent=current_agent_name, 
                 content=clean_full_response,
                 thoughts=full_thoughts,
-                cues=cues
+                signature=signature,
+                cues=cues,
+                is_technical=is_technical_action
             )
             self.conversation.append(msg)
             
             # Update context with this response
             full_context["conversation"].append({
                 "agent": current_agent_name,
-                "content": msg.content
+                "content": msg.content,
+                "signature": msg.signature
             })
                 
             # Signal the final concise/cleaned message
             yield {
                 "type": "message_update",
-                "concise_message": clean_full_response
+                "concise_message": clean_full_response,
+                "is_technical": is_technical_action
             }
             
             # Detect Synthetic Research Report
@@ -1055,126 +1562,52 @@ class AgentOrchestrator:
                 # We continue the loop with the SAME agent but new message (findings)
                 continue
 
-            # Check for RUN_COMMAND cue
-            run_cmd = None
-            for cue in cues:
-                if cue.startswith("RUN_COMMAND:"):
-                    run_cmd = cue.split(":", 1)[1]
-                    break
+            # Check for RUN_COMMAND or RUN_TESTS cues
+            pending_cmd_cue = next((c for c in cues if c.startswith("RUN_COMMAND:") or c.startswith("RUN_TESTS:")), None)
             
-            if run_cmd:
-                print(f"💻 [RUN_COMMAND] Agent requested command execution: {run_cmd}")
-                yield {
-                    "type": "agent_status",
+            if pending_cmd_cue:
+                is_test = pending_cmd_cue.startswith("RUN_TESTS:")
+                raw_cmd = pending_cmd_cue.split(":", 1)[1]
+                
+                # 🛡️ SANDBOX VALIDATION
+                if ".." in raw_cmd or raw_cmd.strip().startswith("/") or (":" in raw_cmd and os.name == 'nt'):
+                     print(f"🚨 [Orchestrator] BLOCKED suspicious command: {raw_cmd}")
+                     current_message = f"Command BLOCKED for security: `{raw_cmd}`. Path traversal or absolute paths are not allowed outside the workspace."
+                     yield {
+                         "type": "error",
+                         "agent": current_agent_name,
+                         "content": f"🛡️ **Security Block**: Command `{raw_cmd}` was rejected because it attempts to access files outside the project folder."
+                     }
+                     # Continue turn so agent can rethink
+                     continue
+
+                print(f"⏸️ [Orchestrator] Pausing for command approval: {raw_cmd}")
+                self.pending_command = {
                     "agent": current_agent_name,
-                    "status": f"Executing command: {run_cmd}..."
+                    "command": raw_cmd,
+                    "is_test": is_test,
+                    "turn": turn
                 }
-
-                try:
-                    # Fix python3 on Windows
-                    if os.name == 'nt' and run_cmd.startswith("python3 "):
-                        run_cmd = run_cmd.replace("python3 ", "python ", 1)
-
-                    # Run subprocess
-                    proc = await asyncio.create_subprocess_shell(
-                        run_cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        cwd=str(self.file_manager.workspace_path) if self.file_manager.workspace_path else os.getcwd()
-                    )
-                    stdout, stderr = await proc.communicate()
-                    
-                    output = stdout.decode('utf-8', errors='replace')
-                    if stderr:
-                        output += "\nSTDERR:\n" + stderr.decode('utf-8', errors='replace')
-                    
-                    print(f"✅ [RUN_COMMAND] Execution complete. Output len: {len(output)}")
-                    yield {
-                        "type": "dev_log",
-                        "level": "info",
-                        "message": f"💻 Command Execution Result for `{run_cmd}`:\n{output}"
-                    }
-                    
-                    current_message = f"Command `{run_cmd}` executed.\n\nOutput:\n```\n{output}\n```\n\nPlease analyze the results and proceed."
                 
-                except Exception as e:
-                    print(f"❌ [RUN_COMMAND] Execution failed: {e}")
-                    current_message = f"Failed to execute `{run_cmd}`. Error: {str(e)}"
-                
-                # Continue loop with same agent to analyze results
-                continue
+                # Calculate handoff for RESUME
+                cues_for_handoff = [c for c in cues if c in self.CUE_TO_AGENT]
+                self.last_handoff = self.CUE_TO_AGENT[cues_for_handoff[0]] if cues_for_handoff else None
 
-            # Check for RUN_TESTS cue
-            test_cmd = None
-            for cue in cues:
-                if cue.startswith("RUN_TESTS:"):
-                    test_cmd = cue.split(":", 1)[1]
-                    break
-            
-            if test_cmd:
-                print(f"🧪 [RUN_TESTS] Agent requested automated test: {test_cmd}")
                 yield {
-                    "type": "agent_status",
+                    "type": "pending_command",
                     "agent": current_agent_name,
-                    "status": f"Running tests: {test_cmd}..."
+                    "command": raw_cmd,
+                    "is_test": is_test
                 }
-
-                # Executing command
-                try:
-                    # Fix python3 on Windows
-                    if os.name == 'nt' and test_cmd.startswith("python3 "):
-                        test_cmd = test_cmd.replace("python3 ", "python ", 1)
-                        print(f"🔧 [RUN_TESTS] Windows detected, aliasing {test_cmd}")
-
-                    # Heuristic: If they use 'python -m unittest tests/test_file.py', it often fails 
-                    # with ModuleNotFoundError on Windows if __init__.py is missing.
-                    # We can try to clean it up to just 'python tests/test_file.py' if the file exists.
-                    if "-m unittest" in test_cmd and test_cmd.endswith(".py"):
-                        parts = test_cmd.split()
-                        file_path = parts[-1]
-                        workspace = self.file_manager.workspace_path or Path(os.getcwd())
-                        full_path = Path(workspace) / file_path
-                        if full_path.exists():
-                            # Switch to direct execution which is more reliable for simple scripts
-                            test_cmd = test_cmd.replace("-m unittest ", "")
-                            print(f"🔧 [RUN_TESTS] Auto-correcting unittest path to direct execution: {test_cmd}")
-
-                    # Run subprocess
-                    proc = await asyncio.create_subprocess_shell(
-                        test_cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        cwd=str(self.file_manager.workspace_path) if self.file_manager.workspace_path else os.getcwd()
-                    )
-                    stdout, stderr = await proc.communicate()
-                    
-                    output = stdout.decode('utf-8', errors='replace')
-                    if stderr:
-                        output += "\nSTDERR:\n" + stderr.decode('utf-8', errors='replace')
-                    
-                    print(f"✅ [RUN_TESTS] Execution complete. Output len: {len(output)}")
-                    yield {
-                        "type": "dev_log",
-                        "level": "info",
-                        "message": f"🧪 Test Execution Result for `{test_cmd}`:\n{output}"
-                    }
-                    
-                    # Also yield a special system message to show in chat
-                    yield {
-                        "type": "message",
-                        "agent": "System",
-                        "content": f"🛠️ **Automated Test Run**: `{test_cmd}`\n\n```\n{output}\n```",
-                        "complete": True
-                    }
-                    
-                    current_message = f"Command `{test_cmd}` executed.\n\nOutput:\n```\n{output}\n```\n\nPlease analyze the results. If failed, hand off to Junior Dev for fixes."
                 
-                except Exception as e:
-                    print(f"❌ [RUN_TESTS] Execution failed: {e}")
-                    current_message = f"Failed to execute `{test_cmd}`. Error: {str(e)}"
-                
-                # Continue loop with same agent to analyze results
-                continue
+                yield {
+                    "type": "agent_done",
+                    "agent": current_agent_name,
+                    "message": f"Requesting permission to run: `{raw_cmd}`... ⏸️"
+                }
+                break
+
+            # Check for handoff
 
             # Check for handoff
             cues_for_handoff = [c for c in cues if c in self.CUE_TO_AGENT]
@@ -1213,8 +1646,8 @@ class AgentOrchestrator:
             if "PROJECT_COMPLETE" in cues:
                 # Validate checklist is complete before allowing project completion
                 if not self._is_checklist_complete():
-                    incomplete_items = [item for item in self.mission_checklist if not item['done']]
-                    incomplete_list = ", ".join([f"Step {item['step']}" for item in incomplete_items])
+                    incomplete_items = [item for item in self.mission_checklist if not item.get('done', False)]
+                    incomplete_list = ", ".join([f"Step {item.get('step', '?')}" for item in incomplete_items])
                     print(f"⚠️ [Orchestrator] PROJECT_COMPLETE blocked - checklist incomplete: {incomplete_list}")
                     
                     yield {
@@ -1226,7 +1659,7 @@ class AgentOrchestrator:
                     # Send warning back to agent and continue
                     current_message = f"⚠️ Cannot mark project complete yet. The following checklist items are not done:\n"
                     for item in incomplete_items:
-                        current_message += f"- [ ] {item['step']}. {item['description']} (→{item['agent']})\n"
+                        current_message += f"- [ ] {item.get('step', '?')}. {item.get('description', '')} (→{item.get('agent', 'SENIOR')})\n"
                     current_message += "\nPlease complete these remaining steps first."
                     
                     # Keep same agent to handle the incomplete work
@@ -1258,15 +1691,15 @@ class AgentOrchestrator:
             if "DONE" in cues:
                 if handoff_agent:
                     # We have a handoff pending, don't break - let the handoff happen
-                    print(f"📌 [Orchestrator] DONE detected but handoff to {handoff_agent} pending - continuing")
+                    print(f"\n📌 [Orchestrator] DONE detected but handoff to {handoff_agent} pending - continuing")
                 elif self.handoff_queue:
                     # Move to next agent in queue instead of stopping
                     handoff_agent = self.handoff_queue.pop(0)
                     handoff_cue = "QUEUE_NEXT"
-                    print(f"⏭️ [Orchestrator] Task complete. Moving to queued agent: {handoff_agent}")
+                    print(f"\n⏭️ [Orchestrator] Task complete. Moving to queued agent: {handoff_agent}")
                 else:
                     # No handoff pending and queue empty - actually stop
-                    print(f"⏹️ [Orchestrator] DONE detected with no pending handoffs - stopping")
+                    print(f"\n⏹️ [Orchestrator] DONE detected with no pending handoffs - stopping")
                     
                     # Cleanup research files
                     if os.path.exists(".research"):
@@ -1283,7 +1716,7 @@ class AgentOrchestrator:
                     break
             
             if handoff_agent:
-                print(f"🔀 [Orchestrator] Executing handoff: {current_agent_name} -> {handoff_agent}")
+                print(f"\n🔀 [Orchestrator] Executing handoff: {current_agent_name} -> {handoff_agent}")
                 yield {
                     "type": "handoff",
                     "from_agent": current_agent_name,
@@ -1294,10 +1727,10 @@ class AgentOrchestrator:
                 # Set up for next turn
                 current_agent_name = handoff_agent
                 current_message = f"Previous agent ({msg.agent}) said:\n\n{full_response}\n\nPlease continue with your expertise."
-                print(f"🔄 [Orchestrator] Continuing loop to turn {turn+1}...")
+                print(f"\n🔄 [Orchestrator] Continuing loop to turn {turn+1}...")
             else:
                 # No handoff, we're done
-                print(f"⏹️ [Orchestrator] No handoff detected, ending loop")
+                print(f"\n⏹️ [Orchestrator] No handoff detected, ending loop")
                 yield {
                     "type": "agent_done",
                     "agent": current_agent_name,
@@ -1305,7 +1738,7 @@ class AgentOrchestrator:
                 }
                 break
         
-        print(f"🏁 [Orchestrator] Loop ended after {turn} turns")
+        print(f"\n🏁 [Orchestrator] Loop ended after {turn} turns")
         # Final complete event
         yield {
             "type": "complete",
@@ -1315,61 +1748,202 @@ class AgentOrchestrator:
         }
     
     async def handle_approval_signal(self, approved: bool, feedback: str = None) -> Dict:
-        """Handle signal from UI that approval/rejection is complete"""
-        # Determine next agent
+        """Handle signal from UI for file edits or command approvals"""
         current_agent_name = None
         message = ""
         
-        # Get the agent who last spoke (from history)
+        # 1. CHECK FOR PENDING ACTIONS
+        pending_changes = self.file_manager.get_pending_changes() if self.file_manager else []
+        
+        # 2. HANDLE PENDING COMMAND APPROVAL
+        if self.pending_command:
+            cmd_info = self.pending_command
+            self.pending_command = None
+            
+            if approved:
+                print(f"🚀 [Orchestrator] Command APPROVED: {cmd_info['command']}")
+                output = await self._execute_command(cmd_info["command"], is_test=cmd_info["is_test"])
+                
+                # Update Terminal History
+                self.terminal_history.append({
+                    "command": cmd_info["command"],
+                    "output": output,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+                # After command, check if files are still pending
+                if self.file_manager.get_pending_changes():
+                    return {
+                        "next_agent": None,
+                        "message": f"Command executed successfully. Waiting for remaining file changes to be approved..."
+                    }
+
+                return {
+                    "next_agent": cmd_info["agent"],
+                    "message": f"Command `{cmd_info['command']}` executed.\n\nOutput:\n```\n{output}\n```\n\nPlease analyze these results and proceed."
+                }
+            else:
+                print(f"🛑 [Orchestrator] Command REJECTED: {cmd_info['command']}")
+                return {
+                    "next_agent": cmd_info["agent"],
+                    "message": f"User REJECTED your command: `{cmd_info['command']}`. {f'Feedback: {feedback}' if feedback else 'Please find another approach.'}"
+                }
+
+        # 3. HANDLE FILE EDIT / GENERAL APPROVAL
+        # After a file is approved via the separate /approve endpoint, the UI sends 'approval_done'
+        # to signal the orchestrator to check state and move on.
+        
+        if pending_changes:
+             # If we are here and still have pending changes, it means the user clicked 
+             # 'Proceed' or 'Handoff' but didn't finish approving all files.
+             return {
+                 "next_agent": None,
+                 "message": "Waiting for all file changes to be reviewed..."
+             }
+
         last_msg = self.conversation[-1] if self.conversation else None
         last_agent_name = last_msg.agent if last_msg else "Senior Dev"
-        
-        # Check if they said they were done
         was_done = last_msg and "[DONE]" in last_msg.content
         
         if approved:
-            # Check if they explicitly marked the project as complete
             is_project_complete = last_msg and "[PROJECT_COMPLETE]" in last_msg.content
-            
             if is_project_complete:
                 self.mission_status = "IDLE"
                 self.last_handoff = None
-                return {
-                    "next_agent": None,
-                    "message": None
-                }
+                return {"next_agent": None, "message": None}
                 
             if self.last_handoff:
                 current_agent_name = self.last_handoff
-                message = f"The user has approved the file changes from {last_agent_name}. You've been called in to help with the next step."
+                message = f"The user has approved the revisions from {last_agent_name}. Please continue."
             elif self.handoff_queue:
                 current_agent_name = self.handoff_queue.pop(0)
                 message = f"User approved previous changes. Now it's your turn in the mission queue."
             elif was_done:
-                # If was_done, we check if we should hand back to Senior for the next checklist item
                 if self.mission_checklist and not self._is_checklist_complete():
                     current_agent_name = "Senior Dev"
-                    message = f"The user approved the previous step. The mission checklist is still in progress. Please review the status and trigger the next action."
+                    message = "Changes approved. Please continue with the next task on the checklist."
                 else:
-                    # Mission finished or no checklist
-                    self.mission_status = "IDLE"
-                    self.last_handoff = None
-                    return {
-                        "next_agent": None,
-                        "message": None
-                    }
+                    current_agent_name = "Senior Dev"
+                    message = "Changes approved. What's next?"
             else:
-                # Agent isn't done yet, just keep going
                 current_agent_name = last_agent_name
-                message = "Great! Changes approved. What's next?"
+                message = f"Great! Your changes were approved. {feedback if feedback else 'What is the next step?'}"
         else:
-            # Rejection - stick with same agent or go to requester if feedback exists
             current_agent_name = last_agent_name
-            message = "User rejected the changes"
-            if feedback:
-                message += f" with feedback: {feedback}"
-            else:
-                message += ". Please try a different approach."
+            message = f"The user has REJECTED your changes. Feedback: {feedback if feedback else 'Please rethink your approach.'}"
+
+        self.last_handoff = None
+        return {
+            "next_agent": current_agent_name,
+            "message": message
+        }
+
+    async def get_reports_for_optimization(self) -> List[dict]:
+        """Get review reports that haven't been optimized yet"""
+        if not self.review_service:
+            return []
+            
+        all_reports = getattr(self.review_service, 'review_history', [])
+        # Filter out reports we've already used for optimization
+        new_reports = [r for r in all_reports if r.get('id') not in self.optimized_report_ids]
+        return new_reports
+
+    async def run_optimization_analysis(self) -> Dict[str, Any]:
+        """Trigger the optimizer to analyze new reports and propose changes"""
+        if not self.optimizer:
+            return {"status": "error", "message": "Optimizer not available"}
+            
+        reports = await self.get_reports_for_optimization()
+        if not reports:
+            return {"status": "skipped", "message": "No new review reports to optimize"}
+            
+        result = await self.optimizer.optimize_agents(reports)
+        
+        # Store pending changes and tracked report IDs
+        self.pending_optimizations = result.get("changes", [])
+        
+        # Keep track of which reports were used in this batch
+        for r in reports:
+            rid = r.get('id')
+            if rid and rid not in self.optimized_report_ids:
+                self.optimized_report_ids.append(rid)
+                
+        return result
+
+    async def handle_optimization_approval(self, index: int) -> bool:
+        """Apply a specific proposed optimization"""
+        if index < 0 or index >= len(self.pending_optimizations):
+            print(f"⚠️ [Orchestrator] Invalid optimization index: {index}")
+            return False
+            
+        change = self.pending_optimizations[index]
+        success = await self.optimizer.apply_optimization(change)
+        
+        if success:
+            change["applied"] = True
+            print(f"✅ [Orchestrator] Optimization approved and applied: {change.get('file')}")
+            
+        return success
+
+    async def handle_optimization_rejection(self, index: int) -> bool:
+        """Reject a specific proposed optimization"""
+        if index < 0 or index >= len(self.pending_optimizations):
+            return False
+            
+        change = self.pending_optimizations[index]
+        change["rejected"] = True
+        print(f"❌ [Orchestrator] Optimization rejected: {change.get('file')}")
+        return True
+        
+    async def _execute_command(self, run_cmd: str, is_test: bool = False) -> str:
+        """Helper to execute shell commands with venv context and optimization"""
+        try:
+            # VENV INTEGRATION
+            env = os.environ.copy()
+            workspace = self.file_manager.workspace_path if self.file_manager.workspace_path else Path(os.getcwd())
+            
+            # Detect language for venv optimization
+            is_python = any(x in run_cmd for x in ["python", "pip", "pytest", "unittest"])
+            
+            if is_python:
+                venv_path = workspace / "backend" / "venv"
+                if venv_path.exists():
+                    if os.name == 'nt':
+                        scripts_path = str(venv_path / "Scripts")
+                        env["PATH"] = scripts_path + os.pathsep + env.get("PATH", "")
+                        env["VIRTUAL_ENV"] = str(venv_path)
+                    else:
+                        bin_path = str(venv_path / "bin")
+                        env["PATH"] = bin_path + os.pathsep + env.get("PATH", "")
+                        env["VIRTUAL_ENV"] = str(venv_path)
+
+                # Windows aliases
+                if os.name == 'nt':
+                     run_cmd = run_cmd.replace("python3 ", "python ").replace("pip3 ", "pip ")
+
+            # Sync with terminal if available
+            if self.terminal_manager:
+                for client_id in self.terminal_manager.ptys:
+                    self.terminal_manager.write_to_pty(client_id, f"{run_cmd}\n")
+
+            # Run subprocess
+            proc = await asyncio.create_subprocess_shell(
+                run_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(workspace),
+                env=env
+            )
+            stdout, stderr = await proc.communicate()
+            
+            output = stdout.decode('utf-8', errors='replace')
+            if stderr:
+                output += "\nSTDERR:\n" + stderr.decode('utf-8', errors='replace')
+            
+            return output
+            
+        except Exception as e:
+            return f"Error executing command: {str(e)}"
         
         # Clear last handoff
         self.last_handoff = None
@@ -1395,6 +1969,20 @@ class AgentOrchestrator:
         # Clear checklist state
         self.mission_checklist = []
         self.mission_description = ""
+        # Reset planner
+        if self.planner:
+            self.planner.clear()
+        # Clear Supervisor session
+        if hasattr(self, 'supervisor') and self.supervisor:
+            self.supervisor.clear_session()
+        self.correction_attempts = 0
+        # Delete history file
+        try:
+            if self.history_file.exists():
+                self.history_file.unlink()
+            print("🗑️ [Orchestrator] Chat history cleared and file deleted")
+        except Exception as e:
+            print(f"⚠️ [Orchestrator] Failed to delete history file: {e}")
         return {"status": "cleared"}
 
     async def do_research(self, query: str) -> AsyncGenerator[Dict, None]:

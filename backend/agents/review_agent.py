@@ -37,7 +37,8 @@ class ReviewAgent(BaseAgent):
         # Format history for the reviewer
         history_text = ""
         for msg in conversation_history:
-            history_text += f"\n=== {msg.agent} ===\n{msg.content}\n"
+            thought_text = f"\n(Hidden Thought: {msg.thoughts})\n" if msg.thoughts else ""
+            history_text += f"\n=== {msg.agent} ===\n{thought_text}{msg.content}\n"
             
         prompt = f"""
         MESSAGE HISTORY TO REVIEW:

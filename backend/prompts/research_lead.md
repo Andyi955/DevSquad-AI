@@ -40,14 +40,7 @@ For EVERY sub-research query, you MUST use `[READ_URL]` on at least the most pro
 
 ### Step 1: Analyze Request
 ```
-<think>
-Research topic: [Main topic]
-Sub-questions needed:
-1. [Specific question 1]
-2. [Specific question 2]
-3. [Specific question 3]
-Date context: [Current date from Environmental Context]
-</think>
+
 ```
 
 ### Step 2: Dispatch Sub-Research
@@ -126,14 +119,7 @@ Your research is complete when:
 
 ## Example Response
 
-<think>
-Research topic: Latest developments in React Server Components
-Current date: 2026-01-21
-Sub-questions:
-1. What are the performance benefits of RSC in 2026?
-2. What are the migration challenges from client components?
-3. Which major frameworks now support RSC?
-</think>
+
 
 Breaking this into focused sub-research queries. Using current year for latest info.
 

@@ -25,20 +25,33 @@ A fun, interactive web application where AI agents (DeepSeek & Gemini) collabora
 - **🧪 Unit Tester** (Gemini) - Test creation (Pytest/Unittest), quality assurance
 - **🔍 Researcher** (Gemini) - Targeted web searches, documentation lookups
 - **🏗️ Research Lead** (Gemini) - Deep research orchestration, report synthesis
+- **👁️ Supervisor Agent** (Gemini) - Always-on background monitor that detects missing handoffs and failures
 - **🕵️‍♂️ Review Agent** (Gemini) - Silent observer that critiques performance and suggests system improvements
+- **⚡ Optimizer Agent** (Gemini) - Automatically edits prompts and code based on Review Agent feedback
 
 #### 🔬 Dedicated Deep Research
 The Research framework uses a **Tandem Architecture** for maximum depth and speed:
 1.  **Lead Architect (Gemini 3 Flash)**: Orchestrates the mission, performs high-speed web searches, and scrapes multiple sources in parallel.
 2.  **Synthesis Engine (DeepSeek V3)**: Analyzes the gathered raw data and synthesizes it into a high-impact Executive Report.
 
-### 🧠 Hybrid "Thinking" Process
-We utilize a combination of **Gemini 3 Flash** for development speed and **DeepSeek-V3** (via `deepseek-chat`) for the final research synthesis and complex reasoning.
-- Agents explicitly show their internal monologue using `<think>` tags.
-- This "Show Your Work" approach allows you to see *how* the agent arrived at a solution before it writes any code.
-- The **Junior Dev** and **Senior Dev** use it to plan architectural and implementation steps.
-- The **Researcher** uses it to formulate search strategies and cross-reference sources.
-- The **Summarizer** uses it to analyze multi-source data for the final report.
+### 🧠 Gemini Thought Signature & Stateful Reasoning
+We utilize **Gemini 3 Flash's** advanced thinking capabilities with a unique implementation of **Thought Signatures**.
+
+Instead of just showing text logs, we capture and persist the model's cryptographic **Thought Signature** (a hidden state token) across multi-turn conversations.
+- **Stateful Reasoning**: The model "remembers" its exact reasoning chain from previous turns without needing to re-process the entire text history.
+- **Verifiable Continuity**: Ensures that the agent's logic remains consistent and grounded throughout complex multi-step tasks.
+- **Show Your Work**: Agents stream their internal monologue using Gemini's native "Thinking" events, allowing you to watch their decision-making process live before they commit to an action.
+
+### 🔄 Optimization Loop Pipeline
+The system includes a **Closed-Loop Prompt Optimizer** (inspired by TextGrad/DSPy) that allows the AI to self-improve over time.
+
+**The Loop Workflow:**
+1.  **Snapshot**: The system backs up all current system prompts.
+2.  **Benchmark**: A standardized test suite (or current task) is executed.
+3.  **Review**: The **Review Agent** scores the performance (0-100) and provides specific critiques.
+4.  **Optimize**: If the score is below target, the **Optimizer Agent** analyzes the critiques and proposes specific edits to the prompt files (`*.md`) or agent parameters.
+5.  **Apply**: The changes are applied (automatically or with approval).
+6.  **Repeat**: The loop continues until the system converges on a high-scoring configuration.
 
 ### Highlights
 - 🎬 **Real-time streaming** - Watch agents think and respond live
@@ -49,8 +62,10 @@ We utilize a combination of **Gemini 3 Flash** for development speed and **DeepS
 - 📎 **File Context** - Intelligent file reading (only reads what is needed)
 - 🔒 **Safe Switch Management** - Dynamically switch between project folders without data loss
 - 🌈 **Color-coded Diffs** - Visual representation of code additions and removals
-- 📊 **Usage tracking** - Monitor API usage and costs
-- 🕵️‍♂️ **Self-Improving System** - Review Agent analyzes performance and suggests prompt/orchestrator improvements
+- � **Usage tracking** - Monitor API usage and costs
+- �🕵️‍♂️ **Self-Improving System** - Review Agent analyzes performance and suggests prompt/orchestrator improvements
+
+👉 **[View Detailed System Architecture & Optimization Diagrams](docs/architecture.html)**
 
 ---
 
@@ -127,10 +142,17 @@ DevSquad-AI/
 │   │   ├── senior_dev.py    # Gemini senior dev
 │   │   ├── junior_dev.py    # DeepSeek junior dev
 │   │   ├── unit_tester.py   # Gemini tester
+│   │   ├── base_agent.py    # Base agent with Thought Signature logic
+│   │   ├── supervisor_agent.py # Real-time failure detection
+│   │   ├── review_agent.py  # Performance reviewer
+│   │   ├── optimizer_agent.py # Prompt optimizer
 │   │   ├── researcher.py    # DeepSeek researcher
 │   │   └── research_lead.py # Deep research coordinator
 │   ├── prompts/             # Fine-tuned system prompts
-│   ├── services/            # File manager, browser, etc.
+│   ├── services/            # Core services
+│   │   ├── optimization_loop.py # Self-improvement pipeline
+│   │   ├── scoring_engine.py    # Performance scoring
+│   │   └── ...
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
@@ -201,14 +223,23 @@ Agents communicate via special cues in their responses:
 Edit `.env` to customize:
 
 ```env
-# Required
-GEMINI_API_KEY=your_key
-DEEPSEEK_API_KEY=your_key
+# AI API Keys
+GEMINI_API_KEY=your_gemini_key_here
+DEEPSEEK_API_KEY=your_deepseek_key_here
+SERPER_API_KEY=your_serper_key_here
 
-# Optional
-MAX_FILE_SIZE_MB=10          # Max upload size
-ENABLE_BROWSER_AGENT=true    # Enable web browsing
-USAGE_LIMIT_PER_DAY=1000     # API call limit
+# Settings
+MAX_FILE_SIZE_MB=10
+ENABLE_BROWSER_AGENT=true
+USAGE_LIMIT_PER_DAY=1000
+
+# Browser Config (Optional)
+BROWSER_EXECUTABLE_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
+BROWSER_USER_DATA_DIR=C:\Users
+
+# Server Ports
+BACKEND_PORT=8000
+FRONTEND_PORT=5173
 ```
 
 ---
@@ -266,6 +297,3 @@ MIT License - feel free to use and modify!
 ## 📞 Contact
 
 [Andrew Ivory](https://www.linkedin.com/in/andrewivory1)
-
-
----

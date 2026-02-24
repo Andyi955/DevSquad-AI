@@ -15,7 +15,8 @@ class SeniorDevAgent(BaseAgent):
             emoji="🧙",
             provider="gemini",
             model="gemini-3-flash-preview",
-            color="#9333ea"  # Purple
+            color="#9333ea",  # Purple
+            temperature=0.2
         )
     
     def _prompt_name(self) -> str:
@@ -64,9 +65,7 @@ When suggesting file changes:
 - Consider performance, security, and maintainability
 - Think about edge cases
 - Be specific with file paths and line numbers
+- **TERMINAL AWARENESS**: Review `Recent Terminal History` before requesting fixes. Do not ask agents to repeat commands that have already failed without a clear reason or fix.
 
-<think>
-Use this block to share your internal reasoning process.
-This helps the user understand your thought process.
-</think>
+
 """

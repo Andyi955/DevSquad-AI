@@ -88,7 +88,7 @@ const InlineInput = ({ type, onSubmit, onCancel, initialValue = '', noPadding = 
     )
 }
 
-const FileTreeNode = React.memo(({ node, level = 0, onSelect, selectedPath, onUploadToPath, onMoveItem, onRenameItem, onAttachFiles, creatingItem, onCreateSubmit, onCreateCancel }) => {
+const FileTreeNode = React.memo(({ node, level = 0, onSelect, selectedPath, onUploadToPath, onMoveItem, onRenameItem, onDeleteItem, onAttachFiles, creatingItem, onCreateSubmit, onCreateCancel }) => {
     const [isOpen, setIsOpen] = useState(false)
     const [isDragOver, setIsDragOver] = useState(false)
     const [isRenaming, setIsRenaming] = useState(false)
@@ -235,7 +235,7 @@ const FileTreeNode = React.memo(({ node, level = 0, onSelect, selectedPath, onUp
                             onCancel={() => setIsRenaming(false)}
                         />
                     ) : (
-                        <span className="file-tree-name">{node.name}</span>
+                        <span className="file-tree-name" title={node.path}>{node.name}</span>
                     )}
                     {!isRenaming && (
                         <div className="node-actions">
@@ -246,46 +246,59 @@ const FileTreeNode = React.memo(({ node, level = 0, onSelect, selectedPath, onUp
                             >
                                 ✏️
                             </button>
+                            <button
+                                className="delete-btn"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    onDeleteItem(node.path, e)
+                                }}
+                                title="Delete"
+                            >
+                                🗑️
+                            </button>
                         </div>
                     )}
                 </div>
 
 
-                {isOpen && (
-                    <div className="file-tree-children">
-                        {shouldShowInput && (
-                            <InlineInput
-                                type={creatingItem.type}
-                                onSubmit={onCreateSubmit}
-                                onCancel={onCreateCancel}
-                            />
-                        )}
-                        {node.children
-                            .sort((a, b) => {
-                                // Sort folders first, then files
-                                if (a.type === b.type) return a.name.localeCompare(b.name)
-                                return a.type === 'folder' ? -1 : 1
-                            })
-                            .map((child) => (
-                                <FileTreeNode
-                                    key={child.path}
-                                    node={child}
-                                    level={level + 1}
-                                    onSelect={onSelect}
-                                    selectedPath={selectedPath}
-                                    onUploadToPath={onUploadToPath}
-                                    onMoveItem={onMoveItem}
-                                    onRenameItem={onRenameItem}
-                                    onAttachFiles={onAttachFiles}
-                                    creatingItem={creatingItem}
-                                    onCreateSubmit={onCreateSubmit}
-                                    onCreateCancel={onCreateCancel}
+                {
+                    isOpen && (
+                        <div className="file-tree-children">
+                            {shouldShowInput && (
+                                <InlineInput
+                                    type={creatingItem.type}
+                                    onSubmit={onCreateSubmit}
+                                    onCancel={onCreateCancel}
                                 />
-                            ))
-                        }
-                    </div>
-                )}
-            </div>
+                            )}
+                            {node.children
+                                .sort((a, b) => {
+                                    // Sort folders first, then files
+                                    if (a.type === b.type) return a.name.localeCompare(b.name)
+                                    return a.type === 'folder' ? -1 : 1
+                                })
+                                .map((child) => (
+                                    <FileTreeNode
+                                        key={child.path}
+                                        node={child}
+                                        level={level + 1}
+                                        onSelect={onSelect}
+                                        selectedPath={selectedPath}
+                                        onUploadToPath={onUploadToPath}
+                                        onMoveItem={onMoveItem}
+                                        onRenameItem={onRenameItem}
+                                        onDeleteItem={onDeleteItem}
+                                        onAttachFiles={onAttachFiles}
+                                        creatingItem={creatingItem}
+                                        onCreateSubmit={onCreateSubmit}
+                                        onCreateCancel={onCreateCancel}
+                                    />
+                                ))
+                            }
+                        </div>
+                    )
+                }
+            </div >
         )
     }
 
@@ -309,7 +322,7 @@ const FileTreeNode = React.memo(({ node, level = 0, onSelect, selectedPath, onUp
                     onCancel={() => setIsRenaming(false)}
                 />
             ) : (
-                <span className="file-tree-name">{node.name}</span>
+                <span className="file-tree-name" title={node.path}>{node.name}</span>
             )}
             {!isRenaming && (
                 <div className="node-actions">
@@ -330,13 +343,23 @@ const FileTreeNode = React.memo(({ node, level = 0, onSelect, selectedPath, onUp
                     >
                         ✏️
                     </button>
+                    <button
+                        className="delete-btn"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onDeleteItem(node.path, e)
+                        }}
+                        title="Delete"
+                    >
+                        🗑️
+                    </button>
                 </div>
             )}
         </div>
     )
 })
 
-const FileTree = ({ files, onSelect, selectedFile, onUploadToPath, onMoveItem, onRenameItem, onAttachFiles, creatingItem, onCreateSubmit, onCreateCancel }) => {
+const FileTree = ({ files, onSelect, selectedFile, onUploadToPath, onMoveItem, onRenameItem, onDeleteItem, onAttachFiles, creatingItem, onCreateSubmit, onCreateCancel }) => {
     // Convert flat list to tree structure
     const tree = useMemo(() => {
         const root = []
@@ -436,6 +459,7 @@ const FileTree = ({ files, onSelect, selectedFile, onUploadToPath, onMoveItem, o
                     onUploadToPath={onUploadToPath}
                     onMoveItem={onMoveItem}
                     onRenameItem={onRenameItem}
+                    onDeleteItem={onDeleteItem}
                     onAttachFiles={onAttachFiles}
                     creatingItem={creatingItem}
                     onCreateSubmit={onCreateSubmit}
