@@ -9,6 +9,9 @@ export default function OptimizerPanel() {
     const [supervisorLearnings, setSupervisorLearnings] = useState([]);
     const [pendingChanges, setPendingChanges] = useState([]);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [expandedItems, setExpandedItems] = useState(new Set());
+    const [changesHistory, setChangesHistory] = useState([]);
+    const [error, setError] = useState(null);
 
     // Fetch supervisor learnings on mount
     useEffect(() => {
@@ -95,9 +98,7 @@ export default function OptimizerPanel() {
         }
     };
 
-    const [expandedItems, setExpandedItems] = useState(new Set());
-    const [changesHistory, setChangesHistory] = useState([]); // Assuming this was defined somewhere or needed
-    const [error, setError] = useState(null);
+
 
     const toggleExpand = (id) => {
         setExpandedItems(prev => {

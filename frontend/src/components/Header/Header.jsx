@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react'
+import PropTypes from 'prop-types'
 import './Header.css'
 
 function Header({ isConnected, usage, onNewChat, activeTab, onTabChange, hasPendingPlan }) {
@@ -175,6 +176,20 @@ function Header({ isConnected, usage, onNewChat, activeTab, onTabChange, hasPend
             </div>
         </header>
     )
+}
+
+Header.propTypes = {
+    isConnected: PropTypes.bool.isRequired,
+    usage: PropTypes.shape({
+        today: PropTypes.shape({
+            today_calls: PropTypes.number,
+            daily_limit: PropTypes.number
+        })
+    }),
+    onNewChat: PropTypes.func.isRequired,
+    activeTab: PropTypes.string.isRequired,
+    onTabChange: PropTypes.func.isRequired,
+    hasPendingPlan: PropTypes.bool
 }
 
 export default Header
